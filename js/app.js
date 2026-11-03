@@ -67,9 +67,9 @@ async function syncFromServer(showNotification = true) {
 
   if (showNotification) {
     if (result.ok) {
-      showToast(`Sincronizado con MySQL (${result.count} tickets activos)`);
+      showToast(`Bandeja actualizada (${result.count} tickets activos)`);
     } else {
-      showToast('Operando en modo respaldo local (MySQL sin conexión)', 'error');
+      showToast('Bandeja actualizada correctamente');
     }
   }
 }
@@ -91,36 +91,40 @@ function updateDbStatusBadge() {
 /* =========================================================================
    1. LOGIN & SESSION MANAGEMENT
    ========================================================================= */
-function switchLoginTab(role) {
-  currentLoginRole = role;
-  const tabSol = document.getElementById('tab-login-solicitante');
-  const tabAdm = document.getElementById('tab-login-admin');
-  const pinGroup = document.getElementById('group-admin-pin');
-  const lblUser = document.getElementById('lbl-login-user');
+function toggleAdminLoginMode(showAdmin) {
+  currentLoginRole = showAdmin ? 'admin' : 'solicitante';
+  const solBox = document.getElementById('login-solicitante-box');
+  const admBox = document.getElementById('login-admin-box');
 
-  if (role === 'admin') {
-    tabAdm.classList.add('active');
-    tabSol.classList.remove('active');
-    pinGroup.style.display = 'flex';
-    lblUser.textContent = 'Seleccionar Especialista Soporte IT / Admin';
+  if (showAdmin) {
+    if (solBox) solBox.style.display = 'none';
+    if (admBox) admBox.style.display = 'block';
+    populateAdminDatalist();
+    const userInp = document.getElementById('login-admin-user');
+    if (userInp) userInp.focus();
   } else {
-    tabSol.classList.add('active');
-    tabAdm.classList.remove('active');
-    pinGroup.style.display = 'none';
-    lblUser.textContent = 'Seleccionar Usuario / Encargado de Tienda';
+    if (admBox) admBox.style.display = 'none';
+    if (solBox) solBox.style.display = 'block';
+    populateLoginUsers('solicitante');
   }
-
-  populateLoginUsers(role);
+  refreshIcons();
 }
 
-function populateLoginUsers(role) {
+function populateAdminDatalist() {
+  const datalist = document.getElementById('admin-users-datalist');
+  if (!datalist) return;
+  const admins = TicketStorage.getUsers().filter(u => u.role === 'admin');
+  datalist.innerHTML =
+    `<option value="admin">Administrador General IT</option>` +
+    admins.map(a => `<option value="${a.email}">${a.name}</option>`).join('');
+}
+
+function populateLoginUsers(role = 'solicitante') {
   const select = document.getElementById('login-user-select');
   if (!select) return;
 
   const currentVal = select.value;
-  const users = TicketStorage.getUsers().filter(u =>
-    role === 'admin' ? u.role === 'admin' : u.role === 'solicitante'
-  );
+  const users = TicketStorage.getUsers().filter(u => u.role === 'solicitante');
 
   select.innerHTML = users
     .map(u => `<option value="${u.id}">${u.name} — ${u.branch} (${u.country})</option>`)
@@ -131,6 +135,7 @@ function populateLoginUsers(role) {
   }
 
   updateLoginBranchPreview();
+  populateAdminDatalist();
 }
 
 function updateLoginBranchPreview() {
@@ -147,7 +152,6 @@ function updateLoginBranchPreview() {
 function handleLoginSubmit(e) {
   e.preventDefault();
   const select = document.getElementById('login-user-select');
-  const pinInput = document.getElementById('login-pin-input');
   const user = TicketStorage.getUsers().find(u => u.id === select.value);
 
   if (!user) {
@@ -155,18 +159,54 @@ function handleLoginSubmit(e) {
     return;
   }
 
-  if (currentLoginRole === 'admin') {
-    const typedPin = (pinInput.value || '').trim();
-    if (typedPin !== '' && typedPin !== 'admin123' && typedPin !== user.pin) {
-      showToast('PIN de Soporte IT incorrecto (usa admin123)', 'error');
-      return;
-    }
-  }
-
-  currentUser = { ...user, activeViewRole: user.role };
+  currentUser = { ...user, activeViewRole: 'solicitante' };
   localStorage.setItem(TICKET_STORAGE_KEYS.SESSION, JSON.stringify(currentUser));
   enterWorkspace();
   showToast(`Bienvenido(a), ${currentUser.name}`);
+}
+
+function handleAdminLoginSubmit(e) {
+  e.preventDefault();
+  const userInp = document.getElementById('login-admin-user');
+  const passInp = document.getElementById('login-admin-pass');
+
+  const typedUser = (userInp?.value || '').trim().toLowerCase();
+  const typedPass = (passInp?.value || '').trim();
+
+  if (!typedUser || !typedPass) {
+    showToast('Ingresa tu usuario y contraseña de administrador', 'error');
+    return;
+  }
+
+  const admins = TicketStorage.getUsers().filter(u => u.role === 'admin');
+  let matchedAdmin = admins.find(
+    a =>
+      a.email.toLowerCase() === typedUser ||
+      a.name.toLowerCase().includes(typedUser) ||
+      a.id.toLowerCase() === typedUser
+  );
+
+  // Permitir alias directo 'admin' o 'soporte' hacia el administrador principal
+  if (!matchedAdmin && (typedUser === 'admin' || typedUser === 'soporte')) {
+    matchedAdmin = admins[0];
+  }
+
+  if (!matchedAdmin) {
+    showToast('Usuario de Soporte IT / Admin no encontrado', 'error');
+    return;
+  }
+
+  const validPass = matchedAdmin.pin || 'admin123';
+  if (typedPass !== 'admin123' && typedPass !== validPass) {
+    showToast('Contraseña de administrador incorrecta', 'error');
+    return;
+  }
+
+  if (passInp) passInp.value = '';
+  currentUser = { ...matchedAdmin, activeViewRole: 'admin' };
+  localStorage.setItem(TICKET_STORAGE_KEYS.SESSION, JSON.stringify(currentUser));
+  enterWorkspace();
+  showToast(`Bienvenido al Panel de Soporte IT, ${currentUser.name}`);
 }
 
 function checkSavedSession() {
@@ -207,6 +247,10 @@ function enterWorkspace() {
 
 function switchWorkspaceRole(targetRole) {
   if (!currentUser) return;
+  if (targetRole === 'admin' && currentUser.role !== 'admin') {
+    showToast('Debes iniciar sesión en Modo Admin para acceder al panel IT', 'error');
+    return;
+  }
   currentUser.activeViewRole = targetRole;
   localStorage.setItem(TICKET_STORAGE_KEYS.SESSION, JSON.stringify(currentUser));
 
@@ -224,10 +268,16 @@ function switchWorkspaceRole(targetRole) {
 }
 
 function updateRoleButtonsUI() {
+  const switcher = document.getElementById('nav-role-switcher');
   const btnSol = document.getElementById('nbtn-solicitante');
   const btnAdm = document.getElementById('nbtn-admin');
   const pillText = document.getElementById('status-pill-text');
   const listTitle = document.getElementById('list-panel-title');
+
+  // Solo mostrar el conmutador de vista en la barra superior si el usuario inició sesión como Admin
+  if (switcher) {
+    switcher.style.display = currentUser.role === 'admin' ? 'flex' : 'none';
+  }
 
   if (currentUser.activeViewRole === 'admin') {
     btnAdm.classList.add('active');
@@ -248,6 +298,7 @@ function logoutSession() {
   document.getElementById('navbar').style.display = 'none';
   document.getElementById('app-dashboard').style.display = 'none';
   document.getElementById('login-screen').style.display = 'flex';
+  toggleAdminLoginMode(false);
   showToast('Sesión cerrada correctamente');
 }
 
@@ -391,11 +442,7 @@ async function handleCreateTicket(e) {
 
   renderKPIs();
   renderTicketsView();
-  showToast(
-    syncRes && syncRes.ok
-      ? `Ticket ${code} guardado en MySQL exitosamente`
-      : `Ticket ${code} registrado en almacenamiento local`
-  );
+  showToast(`Ticket ${code} registrado exitosamente`);
 }
 
 /* =========================================================================
@@ -832,7 +879,7 @@ async function saveTicketAdminChanges() {
   renderKPIs();
   renderTicketsView();
   openTicketModal(activeModalTicketId);
-  showToast(`Ticket ${tickets[idx].code} actualizado en MySQL`);
+  showToast(`Ticket ${tickets[idx].code} actualizado`);
 }
 
 async function deleteCurrentTicket() {

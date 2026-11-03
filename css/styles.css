@@ -1106,3 +1106,48 @@ body {
   border-color: var(--primary);
 }
 
+/* ADMIN LOGIN FOOTER & BANNER */
+.admin-login-footer {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border-light);
+  display: flex;
+  justify-content: center;
+}
+
+.btn-link-admin-mode {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  transition: var(--transition-fast);
+  font-family: inherit;
+}
+
+.btn-link-admin-mode:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.admin-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--primary-light);
+  color: var(--primary);
+  border: 1px solid #c7d2fe;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+

@@ -26,17 +26,10 @@
         </div>
       </div>
 
-      <!-- Live Status & PHP/MySQL Connection Badges -->
-      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-        <div class="system-status-pill">
-          <span class="status-dot"></span>
-          <span id="status-pill-text">Mesa de Ayuda Activa</span>
-        </div>
-
-        <div class="db-sync-pill online" id="db-status-pill" title="Estado del motor de base de datos MySQL en XAMPP">
-          <i data-lucide="database" style="width: 13px; height: 13px;"></i>
-          <span id="db-status-text">Verificando PHP + MySQL...</span>
-        </div>
+      <!-- Live Status Badge -->
+      <div class="system-status-pill">
+        <span class="status-dot"></span>
+        <span id="status-pill-text">Mesa de Ayuda Activa</span>
       </div>
 
       <div class="nav-user-controls">
@@ -78,43 +71,62 @@
             <img src="logomundi.jpeg" alt="Mundi Trofeos" class="login-logo-img" onerror="this.style.display='none'">
             <h2>Sistema de Tickets & Soporte IT</h2>
             <p>Mundi Trofeos · Tiendas Trofex · Premia</p>
-            <div style="margin-top: 10px;">
-              <span class="db-sync-pill online">
-                <i data-lucide="server" style="width: 12px; height: 12px;"></i>
-                Arquitectura PHP + MySQL Activa
-              </span>
-            </div>
           </div>
 
-          <!-- Role Selector -->
-          <div class="login-role-tabs">
-            <button type="button" class="role-tab-item active" id="tab-login-solicitante" onclick="switchLoginTab('solicitante')">
-              <i data-lucide="store" style="width: 16px; height: 16px;"></i> Solicitante / Tienda
-            </button>
-            <button type="button" class="role-tab-item" id="tab-login-admin" onclick="switchLoginTab('admin')">
-              <i data-lucide="cpu" style="width: 16px; height: 16px;"></i> Soporte IT / Admin
-            </button>
+          <!-- MODO 1: INGRESO SOLICITANTE / TIENDA (POR DEFECTO) -->
+          <div id="login-solicitante-box">
+            <form id="form-login" onsubmit="handleLoginSubmit(event)" style="display: flex; flex-direction: column; gap: 16px;">
+              <div class="form-field">
+                <label class="form-label-custom" id="lbl-login-user">Seleccionar Usuario / Encargado de Tienda</label>
+                <select class="form-select-custom" id="login-user-select" onchange="updateLoginBranchPreview()"></select>
+              </div>
+
+              <div id="login-branch-preview" style="background: var(--bg-card-subtle); border: 1px solid var(--border-light); padding: 10px 14px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); font-weight: 600;">
+                Sucursal: <strong id="preview-branch-name" style="color: var(--text-primary);">—</strong>
+              </div>
+
+              <button type="submit" class="btn-primary-lg">
+                <i data-lucide="log-in" style="width: 18px; height: 18px;"></i> Ingresar al Sistema de Tickets
+              </button>
+
+              <div class="admin-login-footer">
+                <button type="button" class="btn-link-admin-mode" onclick="toggleAdminLoginMode(true)">
+                  <i data-lucide="shield-check" style="width: 15px; height: 15px;"></i> Ingresar modo Admin
+                </button>
+              </div>
+            </form>
           </div>
 
-          <form id="form-login" onsubmit="handleLoginSubmit(event)" style="display: flex; flex-direction: column; gap: 16px;">
-            <div class="form-field">
-              <label class="form-label-custom" id="lbl-login-user">Seleccionar Usuario / Encargado de Tienda</label>
-              <select class="form-select-custom" id="login-user-select" onchange="updateLoginBranchPreview()"></select>
-            </div>
+          <!-- MODO 2: FORMULARIO DE ACCESO ADMIN (USUARIO Y CONTRASEÑA) -->
+          <div id="login-admin-box" style="display: none;">
+            <form id="form-login-admin" onsubmit="handleAdminLoginSubmit(event)" style="display: flex; flex-direction: column; gap: 15px;">
+              <div class="admin-mode-banner">
+                <i data-lucide="lock" style="width: 16px; height: 16px;"></i>
+                <span>Acceso Exclusivo Soporte IT / Administrador</span>
+              </div>
 
-            <div id="login-branch-preview" style="background: var(--bg-card-subtle); border: 1px solid var(--border-light); padding: 10px 14px; border-radius: 8px; font-size: 12px; color: var(--text-secondary); font-weight: 600;">
-              Sucursal: <strong id="preview-branch-name" style="color: var(--text-primary);">—</strong>
-            </div>
+              <div class="form-field">
+                <label class="form-label-custom">Usuario o Correo Admin *</label>
+                <input type="text" class="form-input-custom" id="login-admin-user" list="admin-users-datalist" required placeholder="Ej. admin, it.soporte@munditrofeos.com o nombre" autocomplete="username">
+                <datalist id="admin-users-datalist"></datalist>
+              </div>
 
-            <div class="form-field" id="group-admin-pin" style="display: none;">
-              <label class="form-label-custom">Contraseña / PIN de Soporte IT</label>
-              <input type="password" class="form-input-custom" id="login-pin-input" placeholder="Ingresa admin123 (o deja vacío en demo)">
-            </div>
+              <div class="form-field">
+                <label class="form-label-custom">Contraseña *</label>
+                <input type="password" class="form-input-custom" id="login-admin-pass" required placeholder="Ingresa tu contraseña (ej. admin123)" autocomplete="current-password">
+              </div>
 
-            <button type="submit" class="btn-primary-lg">
-              <i data-lucide="log-in" style="width: 18px; height: 18px;"></i> Ingresar al Sistema de Tickets
-            </button>
-          </form>
+              <button type="submit" class="btn-primary-lg">
+                <i data-lucide="shield-check" style="width: 18px; height: 18px;"></i> Iniciar Sesión como Admin
+              </button>
+
+              <div class="admin-login-footer">
+                <button type="button" class="btn-link-admin-mode" onclick="toggleAdminLoginMode(false)">
+                  <i data-lucide="arrow-left" style="width: 15px; height: 15px;"></i> Volver a ingreso de Solicitante / Tienda
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </section>
 
@@ -282,13 +294,13 @@
                 </div>
                 <div>
                   <h3 id="list-panel-title">Bandeja de Tickets e Incidencias</h3>
-                  <p id="list-panel-subtitle">Seguimiento en tiempo real con control de SLA y sincronización MySQL</p>
+                  <p id="list-panel-subtitle">Seguimiento en tiempo real de solicitudes de soporte</p>
                 </div>
               </div>
 
               <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button type="button" class="btn-secondary-custom" onclick="syncFromServer(true)" title="Sincronizar datos desde MySQL">
-                  <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Sincronizar MySQL
+                <button type="button" class="btn-secondary-custom" onclick="syncFromServer(true)" title="Actualizar bandeja de tickets">
+                  <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Actualizar
                 </button>
                 <button type="button" class="btn-secondary-custom" onclick="exportTicketsCSV()">
                   <i data-lucide="download" style="width: 15px; height: 15px;"></i> Exportar CSV
@@ -476,7 +488,7 @@
 
             <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
               <button type="button" class="btn-primary-lg" onclick="saveTicketAdminChanges()" style="width: auto; padding: 9px 18px; font-size: 13px;">
-                <i data-lucide="save" style="width: 15px; height: 15px;"></i> Guardar Cambios en MySQL
+                <i data-lucide="save" style="width: 15px; height: 15px;"></i> Guardar Cambios de Soporte
               </button>
             </div>
           </div>
