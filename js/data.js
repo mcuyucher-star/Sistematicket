@@ -5,33 +5,78 @@
  */
 
 const TICKET_STORAGE_KEYS = {
-  TICKETS: 'sistematickets_tickets_v2',
-  CATEGORIES: 'sistematickets_categories_v2',
-  USERS: 'sistematickets_users_v2',
+  TICKETS: 'sistematickets_tickets_v3',
+  CATEGORIES: 'sistematickets_categories_v3',
+  USERS: 'sistematickets_users_v6',
   SESSION: 'sistematickets_session_v1'
 };
 
+const GUATEMALA_BRANCHES = [
+  'Mundi Trofeos',
+  'Premia Zona 13',
+  'TRX Coban',
+  'TRX Peten',
+  'TRX Puertos Barrios',
+  'TRX Chiquimula',
+  'TRX Jutiapa',
+  'TRX Zona 3',
+  'TRX San Juan',
+  'TRX San Marcos',
+  'TRX Chimaltenango',
+  'TRX Escuintla',
+  'TRX Huehuetenango',
+  'TRX Mazatenango',
+  'TRX Villa Nueva',
+  'TRX Xela'
+];
+
+const CENTRAL_AMERICA_COUNTRIES = [
+  'Guatemala',
+  'El Salvador',
+  'Honduras',
+  'Nicaragua',
+  'Costa Rica',
+  'Belice'
+];
+
 const DEFAULT_CATEGORIES = [
-  { id: 'cat_pos', name: 'Sistema POS / Facturación FEL', slaHours: 4, icon: 'monitor' },
-  { id: 'cat_hw', name: 'Hardware / Equipos de Cómputo', slaHours: 12, icon: 'cpu' },
-  { id: 'cat_red', name: 'Redes, Internet y VPN', slaHours: 6, icon: 'wifi' },
-  { id: 'cat_imp', name: 'Impresoras y Etiquetadoras', slaHours: 8, icon: 'printer' },
-  { id: 'cat_acc', name: 'Accesos, Correo y Cuentas', slaHours: 4, icon: 'key' },
-  { id: 'cat_inf', name: 'Infraestructura / Tienda', slaHours: 24, icon: 'building-2' }
+  { id: 'cat_imp', name: 'Impresoras', slaHours: 12, priority: 'Baja', icon: 'printer' },
+  { id: 'cat_red', name: 'Red', slaHours: 8, priority: 'Media', icon: 'wifi' },
+  { id: 'cat_inst', name: 'Instalación de Equipos', slaHours: 4, priority: 'Alta', icon: 'cpu' },
+  { id: 'cat_mant', name: 'Mantenimiento y Respaldo de Datos', slaHours: 8, priority: 'Media', icon: 'hard-drive' },
+  { id: 'cat_comp', name: 'Compras de Nuevos Equipos', slaHours: 4, priority: 'Alta', icon: 'shopping-cart' }
 ];
 
 const DEFAULT_USERS = [
-  // Solicitantes (Tiendas / Operaciones)
-  { id: 'u1', name: 'Andrea Morales', role: 'solicitante', branch: 'Tienda Trofex Zona 9', country: 'Guatemala', email: 'andrea.morales@munditrofeos.com', phone: '+502 5511-2233', pin: '1234' },
-  { id: 'u2', name: 'Carlos Pérez', role: 'solicitante', branch: 'Bodega & Logística Central', country: 'Guatemala', email: 'carlos.perez@munditrofeos.com', phone: '+502 5544-1234', pin: '1234' },
-  { id: 'u3', name: 'Gabriela Castillo', role: 'solicitante', branch: 'Tienda Premia San Salvador', country: 'El Salvador', email: 'gabriela.castillo@munditrofeos.com', phone: '+503 7711-8899', pin: '1234' },
-  { id: 'u4', name: 'Jorge Valladares', role: 'solicitante', branch: 'Tienda Mundi Trofeos San Pedro Sula', country: 'Honduras', email: 'jorge.valladares@munditrofeos.com', phone: '+504 9900-1122', pin: '1234' },
-  { id: 'u5', name: 'Valeria Solís', role: 'solicitante', branch: 'Tienda Trofex San José', country: 'Costa Rica', email: 'valeria.solis@munditrofeos.com', phone: '+506 8833-4455', pin: '1234' },
+  // Guatemala (Mundi Trofeos, Premia Zona 13 y sucursales TRX)
+  { id: 'u_01_mundi', name: 'Mundi Trofeos', role: 'solicitante', branch: 'Mundi Trofeos', country: 'Guatemala', email: 'munditrofeos@munditrofeos.com', phone: '+502 2200-0001', pin: '1' },
+  { id: 'u_02_premia13', name: 'Premia Zona 13', role: 'solicitante', branch: 'Premia Zona 13', country: 'Guatemala', email: 'premiazona13@munditrofeos.com', phone: '+502 2200-0002', pin: '1' },
+  { id: 'u_03_coban', name: 'TRX Coban', role: 'solicitante', branch: 'TRX Coban', country: 'Guatemala', email: 'coban@tiendastrofex.com', phone: '+502 2200-0003', pin: '1' },
+  { id: 'u_04_peten', name: 'TRX Peten', role: 'solicitante', branch: 'TRX Peten', country: 'Guatemala', email: 'peten@tiendastrofex.com', phone: '+502 2200-0004', pin: '1' },
+  { id: 'u_05_pbarrios', name: 'TRX Puertos Barrios', role: 'solicitante', branch: 'TRX Puertos Barrios', country: 'Guatemala', email: 'puertosbarrios@tiendastrofex.com', phone: '+502 2200-0005', pin: '1' },
+  { id: 'u_06_chiquimula', name: 'TRX Chiquimula', role: 'solicitante', branch: 'TRX Chiquimula', country: 'Guatemala', email: 'chiquimula@tiendastrofex.com', phone: '+502 2200-0006', pin: '1' },
+  { id: 'u_07_jutiapa', name: 'TRX Jutiapa', role: 'solicitante', branch: 'TRX Jutiapa', country: 'Guatemala', email: 'jutiapa@tiendastrofex.com', phone: '+502 2200-0007', pin: '1' },
+  { id: 'u_08_zona3', name: 'TRX Zona 3', role: 'solicitante', branch: 'TRX Zona 3', country: 'Guatemala', email: 'zona3@tiendastrofex.com', phone: '+502 2200-0008', pin: '1' },
+  { id: 'u_09_sanjuan', name: 'TRX San Juan', role: 'solicitante', branch: 'TRX San Juan', country: 'Guatemala', email: 'sanjuan@tiendastrofex.com', phone: '+502 2200-0009', pin: '1' },
+  { id: 'u_10_sanmarcos', name: 'TRX San Marcos', role: 'solicitante', branch: 'TRX San Marcos', country: 'Guatemala', email: 'sanmarcos@tiendastrofex.com', phone: '+502 2200-0010', pin: '1' },
+  { id: 'u_11_chimal', name: 'TRX Chimaltenango', role: 'solicitante', branch: 'TRX Chimaltenango', country: 'Guatemala', email: 'chimaltenango@tiendastrofex.com', phone: '+502 2200-0011', pin: '1' },
+  { id: 'u_12_escuintla', name: 'TRX Escuintla', role: 'solicitante', branch: 'TRX Escuintla', country: 'Guatemala', email: 'escuintla@tiendastrofex.com', phone: '+502 2200-0012', pin: '1' },
+  { id: 'u_13_huehue', name: 'TRX Huehuetenango', role: 'solicitante', branch: 'TRX Huehuetenango', country: 'Guatemala', email: 'huehuetenango@tiendastrofex.com', phone: '+502 2200-0013', pin: '1' },
+  { id: 'u_14_mazate', name: 'TRX Mazatenango', role: 'solicitante', branch: 'TRX Mazatenango', country: 'Guatemala', email: 'mazatenango@tiendastrofex.com', phone: '+502 2200-0014', pin: '1' },
+  { id: 'u_15_villanueva', name: 'TRX Villa Nueva', role: 'solicitante', branch: 'TRX Villa Nueva', country: 'Guatemala', email: 'villanueva@tiendastrofex.com', phone: '+502 2200-0015', pin: '1' },
+  { id: 'u_16_xela', name: 'TRX Xela', role: 'solicitante', branch: 'TRX Xela', country: 'Guatemala', email: 'xela@tiendastrofex.com', phone: '+502 2200-0016', pin: '1' },
+
+  // Centroamérica (solo el nombre del país)
+  { id: 'u_17_sv', name: 'El Salvador', role: 'solicitante', branch: 'El Salvador', country: 'El Salvador', email: 'elsalvador@munditrofeos.com', phone: '+503 7711-8899', pin: '1' },
+  { id: 'u_18_hn', name: 'Honduras', role: 'solicitante', branch: 'Honduras', country: 'Honduras', email: 'honduras@munditrofeos.com', phone: '+504 9900-1122', pin: '1' },
+  { id: 'u_19_ni', name: 'Nicaragua', role: 'solicitante', branch: 'Nicaragua', country: 'Nicaragua', email: 'nicaragua@munditrofeos.com', phone: '+505 8811-2233', pin: '1' },
+  { id: 'u_20_cr', name: 'Costa Rica', role: 'solicitante', branch: 'Costa Rica', country: 'Costa Rica', email: 'costarica@munditrofeos.com', phone: '+506 8833-4455', pin: '1' },
+  { id: 'u_21_bz', name: 'Belice', role: 'solicitante', branch: 'Belice', country: 'Belice', email: 'belice@munditrofeos.com', phone: '+501 610-1122', pin: '1' },
 
   // Técnicos / Administradores IT
-  { id: 't1', name: 'Ing. Diego Ramírez (Soporte IT Nivel 2)', role: 'admin', branch: 'Sede Central IT', country: 'Guatemala', email: 'it.soporte@munditrofeos.com', phone: '+502 4400-9900', pin: 'admin123' },
-  { id: 't2', name: 'Kevin Hernández (Redes & Equipos)', role: 'admin', branch: 'Sede Central IT', country: 'Guatemala', email: 'kevin.it@munditrofeos.com', phone: '+502 4400-9911', pin: 'admin123' },
-  { id: 't3', name: 'Sofía Méndez (Sistemas POS & ERP)', role: 'admin', branch: 'Soporte Regional CA', country: 'El Salvador', email: 'sofia.sistemas@munditrofeos.com', phone: '+503 7100-2200', pin: 'admin123' }
+  { id: 't1', name: 'Maynor Cuyuche', role: 'admin', branch: 'Sede Central IT', country: 'Guatemala', email: 'maynor.cuyuche@munditrofeos.com', phone: '+502 4400-9900', pin: '1' },
+  { id: 't2', name: 'IT1', role: 'admin', branch: 'Sede Central IT', country: 'Guatemala', email: 'it1@munditrofeos.com', phone: '+502 4400-9911', pin: '1' },
+  { id: 't3', name: 'IT2', role: 'admin', branch: 'Sede Central IT', country: 'Guatemala', email: 'it2@munditrofeos.com', phone: '+502 4400-9922', pin: '1' }
 ];
 
 const DEFAULT_TICKETS = [
@@ -52,7 +97,7 @@ const DEFAULT_TICKETS = [
     country: 'Guatemala',
     assetCode: 'IMP-Z9-01 / Epson TM-T20',
     assignedTechId: 't2',
-    assignedTechName: 'Kevin Hernández (Redes & Equipos)',
+    assignedTechName: 'IT1',
     attachmentBase64: null,
     resolutionNotes: 'Se revisó vía AnyDesk la cola de impresión y se programó limpieza de cabezal térmico.',
     comments: [
@@ -63,7 +108,7 @@ const DEFAULT_TICKETS = [
         text: 'Adjunto reporte, tenemos clientes en fila esperando factura.'
       },
       {
-        author: 'Kevin Hernández (Redes & Equipos)',
+        author: 'IT1',
         role: 'Soporte IT',
         date: '03/11/2026 08:02',
         text: 'Recibido Andrea, me conecto por AnyDesk en 3 minutos para desviar la impresión a Caja 2 mientras destrabamos la cuchilla.'
@@ -89,7 +134,7 @@ const DEFAULT_TICKETS = [
     country: 'El Salvador',
     assetCode: 'POS-SV-CAJA01',
     assignedTechId: 't3',
-    assignedTechName: 'Sofía Méndez (Sistemas POS & ERP)',
+    assignedTechName: 'IT2',
     attachmentBase64: null,
     resolutionNotes: '',
     comments: [
@@ -120,12 +165,12 @@ const DEFAULT_TICKETS = [
     country: 'Honduras',
     assetCode: 'PC-VENTAS-SPS03',
     assignedTechId: 't1',
-    assignedTechName: 'Ing. Diego Ramírez (Soporte IT Nivel 2)',
+    assignedTechName: 'Maynor Cuyuche',
     attachmentBase64: null,
     resolutionNotes: 'Cuenta creada en Microsoft 365 y credenciales enviadas al encargado de tienda.',
     comments: [
       {
-        author: 'Ing. Diego Ramírez (Soporte IT Nivel 2)',
+        author: 'Maynor Cuyuche',
         role: 'Soporte IT',
         date: '02/11/2026 16:30',
         text: 'Cuenta activada y permisos asignados en módulo de facturación.'
@@ -147,7 +192,12 @@ const TicketStorage = {
         localStorage.setItem(TICKET_STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
         return DEFAULT_CATEGORIES;
       }
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || !parsed.some(c => c.id === 'cat_inst')) {
+        localStorage.setItem(TICKET_STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
+        return DEFAULT_CATEGORIES;
+      }
+      return parsed;
     } catch (e) {
       return DEFAULT_CATEGORIES;
     }
@@ -160,7 +210,18 @@ const TicketStorage = {
         localStorage.setItem(TICKET_STORAGE_KEYS.USERS, JSON.stringify(DEFAULT_USERS));
         return DEFAULT_USERS;
       }
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return DEFAULT_USERS;
+
+      const hasLegacyAdmins = parsed.some(u => u.id === 't1' && String(u.name || '').includes('Diego'));
+      if (hasLegacyAdmins) {
+        const officialAdmins = DEFAULT_USERS.filter(u => u.role === 'admin');
+        const nonAdmins = parsed.filter(u => u.role !== 'admin');
+        const merged = [...nonAdmins, ...officialAdmins];
+        localStorage.setItem(TICKET_STORAGE_KEYS.USERS, JSON.stringify(merged));
+        return merged;
+      }
+      return parsed;
     } catch (e) {
       return DEFAULT_USERS;
     }
@@ -182,6 +243,36 @@ const TicketStorage = {
 
   saveTickets(list) {
     localStorage.setItem(TICKET_STORAGE_KEYS.TICKETS, JSON.stringify(list));
+  },
+
+  saveUsers(list) {
+    localStorage.setItem(TICKET_STORAGE_KEYS.USERS, JSON.stringify(list));
+  },
+
+  async saveUserToBackend(userObj) {
+    try {
+      const res = await fetch('api/tickets.php?action=save_user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userObj)
+      });
+      return await res.json();
+    } catch (e) {
+      return { ok: false, mode: 'local_only' };
+    }
+  },
+
+  async deleteUserFromBackend(userId) {
+    try {
+      const res = await fetch('api/tickets.php?action=delete_user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: userId })
+      });
+      return await res.json();
+    } catch (e) {
+      return { ok: false, mode: 'local_only' };
+    }
   },
 
   /**

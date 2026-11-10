@@ -37,7 +37,10 @@ try {
             $c['slaHours'] = (int) $c['slaHours'];
         }
 
-        $userRows = $pdo->query("SELECT id, nombre AS name, rol AS role, sucursal AS branch, pais AS country, email, telefono AS phone, pin FROM usuarios ORDER BY rol DESC, nombre ASC")->fetchAll();
+        $userRows = $pdo->query("SELECT id, nombre AS name, rol AS role, sucursal AS branch, pais AS country, email, telefono AS phone, pin, bloqueado AS blocked FROM usuarios ORDER BY id ASC")->fetchAll();
+        foreach ($userRows as &$u) {
+            $u['blocked'] = !empty($u['blocked']);
+        }
 
         $ticketRows = $pdo->query("SELECT * FROM tickets ORDER BY fecha_creacion DESC")->fetchAll();
         $tickets = array_map([Database::class, 'mapTicketRow'], $ticketRows);
@@ -148,6 +151,51 @@ try {
                 'ok' => true,
                 'mode' => 'mysql_live',
                 'message' => 'Ticket eliminado de MySQL'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($action === 'save_user') {
+            $stmt = $pdo->prepare("
+                INSERT INTO usuarios (id, nombre, rol, sucursal, pais, email, telefono, pin, bloqueado)
+                VALUES (:id, :nombre, :rol, :sucursal, :pais, :email, :telefono, :pin, :bloqueado)
+                ON DUPLICATE KEY UPDATE
+                    nombre = VALUES(nombre),
+                    rol = VALUES(rol),
+                    sucursal = VALUES(sucursal),
+                    pais = VALUES(pais),
+                    email = VALUES(email),
+                    telefono = VALUES(telefono),
+                    pin = VALUES(pin),
+                    bloqueado = VALUES(bloqueado)
+            ");
+            $stmt->execute([
+                ':id' => $input['id'],
+                ':nombre' => $input['name'],
+                ':rol' => $input['role'] ?? 'solicitante',
+                ':sucursal' => $input['branch'],
+                ':pais' => $input['country'] ?? 'Guatemala',
+                ':email' => $input['email'] ?? '',
+                ':telefono' => $input['phone'] ?? '',
+                ':pin' => $input['pin'] ?? '1',
+                ':bloqueado' => !empty($input['blocked']) ? 1 : 0
+            ]);
+
+            echo json_encode([
+                'ok' => true,
+                'mode' => 'mysql_live',
+                'message' => 'Usuario guardado correctamente'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($action === 'delete_user' && !empty($input['id'])) {
+            $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = :id");
+            $stmt->execute([':id' => $input['id']]);
+            echo json_encode([
+                'ok' => true,
+                'mode' => 'mysql_live',
+                'message' => 'Usuario eliminado correctamente'
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }

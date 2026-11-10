@@ -66,9 +66,15 @@ class Database {
                 pais VARCHAR(60) NOT NULL DEFAULT 'Guatemala',
                 email VARCHAR(120) NOT NULL,
                 telefono VARCHAR(40) DEFAULT NULL,
-                pin VARCHAR(30) DEFAULT '1234'
+                pin VARCHAR(30) DEFAULT '1234',
+                bloqueado TINYINT(1) NOT NULL DEFAULT 0
             ) ENGINE=InnoDB;
         ");
+
+        $colBlock = $pdo->query("SHOW COLUMNS FROM usuarios LIKE 'bloqueado'")->fetch();
+        if (!$colBlock) {
+            $pdo->exec("ALTER TABLE usuarios ADD COLUMN bloqueado TINYINT(1) NOT NULL DEFAULT 0");
+        }
 
         // 3. Tabla de Tickets
         $pdo->exec("
@@ -102,16 +108,16 @@ class Database {
     }
 
     private static function seedDefaults(PDO $pdo): void {
-        // Seed categorías si está vacía
-        $countCat = (int) $pdo->query("SELECT COUNT(*) FROM categorias")->fetchColumn();
-        if ($countCat === 0) {
+        // Seed categorías oficiales (5 gestiones predefinidas)
+        $hasNewCats = (int) $pdo->query("SELECT COUNT(*) FROM categorias WHERE id = 'cat_inst'")->fetchColumn();
+        if ($hasNewCats === 0) {
+            $pdo->exec("DELETE FROM categorias");
             $categorias = [
-                ['cat_pos', 'Sistema POS / Facturación FEL', 4, 'monitor'],
-                ['cat_hw', 'Hardware / Equipos de Cómputo', 12, 'cpu'],
-                ['cat_red', 'Redes, Internet y VPN', 6, 'wifi'],
-                ['cat_imp', 'Impresoras y Etiquetadoras', 8, 'printer'],
-                ['cat_acc', 'Accesos, Correo y Cuentas', 4, 'key'],
-                ['cat_inf', 'Infraestructura / Tienda', 24, 'building-2']
+                ['cat_imp', 'Impresoras', 12, 'printer'],
+                ['cat_red', 'Red', 8, 'wifi'],
+                ['cat_inst', 'Instalación de Equipos', 4, 'cpu'],
+                ['cat_mant', 'Mantenimiento y Respaldo de Datos', 8, 'hard-drive'],
+                ['cat_comp', 'Compras de Nuevos Equipos', 4, 'shopping-cart']
             ];
             $stmt = $pdo->prepare("INSERT INTO categorias (id, nombre, sla_horas, icono) VALUES (?, ?, ?, ?)");
             foreach ($categorias as $c) {
@@ -119,23 +125,60 @@ class Database {
             }
         }
 
-        // Seed usuarios si está vacía
-        $countUsers = (int) $pdo->query("SELECT COUNT(*) FROM usuarios")->fetchColumn();
-        if ($countUsers === 0) {
-            $usuarios = [
-                ['u1', 'Andrea Morales', 'solicitante', 'Tienda Trofex Zona 9', 'Guatemala', 'andrea.morales@munditrofeos.com', '+502 5511-2233', '1234'],
-                ['u2', 'Carlos Pérez', 'solicitante', 'Bodega & Logística Central', 'Guatemala', 'carlos.perez@munditrofeos.com', '+502 5544-1234', '1234'],
-                ['u3', 'Gabriela Castillo', 'solicitante', 'Tienda Premia San Salvador', 'El Salvador', 'gabriela.castillo@munditrofeos.com', '+503 7711-8899', '1234'],
-                ['u4', 'Jorge Valladares', 'solicitante', 'Tienda Mundi Trofeos San Pedro Sula', 'Honduras', 'jorge.valladares@munditrofeos.com', '+504 9900-1122', '1234'],
-                ['u5', 'Valeria Solís', 'solicitante', 'Tienda Trofex San José', 'Costa Rica', 'valeria.solis@munditrofeos.com', '+506 8833-4455', '1234'],
-                ['t1', 'Ing. Diego Ramírez (Soporte IT Nivel 2)', 'admin', 'Sede Central IT', 'Guatemala', 'it.soporte@munditrofeos.com', '+502 4400-9900', 'admin123'],
-                ['t2', 'Kevin Hernández (Redes & Equipos)', 'admin', 'Sede Central IT', 'Guatemala', 'kevin.it@munditrofeos.com', '+502 4400-9911', 'admin123'],
-                ['t3', 'Sofía Méndez (Sistemas POS & ERP)', 'admin', 'Soporte Regional CA', 'El Salvador', 'sofia.sistemas@munditrofeos.com', '+503 7100-2200', 'admin123']
-            ];
-            $stmt = $pdo->prepare("INSERT INTO usuarios (id, nombre, rol, sucursal, pais, email, telefono, pin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        // Seed usuarios oficiales por sucursal de Guatemala y países de Centroamérica
+        $usuarios = [
+            // Guatemala (Mundi Trofeos, Premia Zona 13 y sucursales TRX)
+            ['u_01_mundi', 'Mundi Trofeos', 'solicitante', 'Mundi Trofeos', 'Guatemala', 'munditrofeos@munditrofeos.com', '+502 2200-0001', '1'],
+            ['u_02_premia13', 'Premia Zona 13', 'solicitante', 'Premia Zona 13', 'Guatemala', 'premiazona13@munditrofeos.com', '+502 2200-0002', '1'],
+            ['u_03_coban', 'TRX Coban', 'solicitante', 'TRX Coban', 'Guatemala', 'coban@tiendastrofex.com', '+502 2200-0003', '1'],
+            ['u_04_peten', 'TRX Peten', 'solicitante', 'TRX Peten', 'Guatemala', 'peten@tiendastrofex.com', '+502 2200-0004', '1'],
+            ['u_05_pbarrios', 'TRX Puertos Barrios', 'solicitante', 'TRX Puertos Barrios', 'Guatemala', 'puertosbarrios@tiendastrofex.com', '+502 2200-0005', '1'],
+            ['u_06_chiquimula', 'TRX Chiquimula', 'solicitante', 'TRX Chiquimula', 'Guatemala', 'chiquimula@tiendastrofex.com', '+502 2200-0006', '1'],
+            ['u_07_jutiapa', 'TRX Jutiapa', 'solicitante', 'TRX Jutiapa', 'Guatemala', 'jutiapa@tiendastrofex.com', '+502 2200-0007', '1'],
+            ['u_08_zona3', 'TRX Zona 3', 'solicitante', 'TRX Zona 3', 'Guatemala', 'zona3@tiendastrofex.com', '+502 2200-0008', '1'],
+            ['u_09_sanjuan', 'TRX San Juan', 'solicitante', 'TRX San Juan', 'Guatemala', 'sanjuan@tiendastrofex.com', '+502 2200-0009', '1'],
+            ['u_10_sanmarcos', 'TRX San Marcos', 'solicitante', 'TRX San Marcos', 'Guatemala', 'sanmarcos@tiendastrofex.com', '+502 2200-0010', '1'],
+            ['u_11_chimal', 'TRX Chimaltenango', 'solicitante', 'TRX Chimaltenango', 'Guatemala', 'chimaltenango@tiendastrofex.com', '+502 2200-0011', '1'],
+            ['u_12_escuintla', 'TRX Escuintla', 'solicitante', 'TRX Escuintla', 'Guatemala', 'escuintla@tiendastrofex.com', '+502 2200-0012', '1'],
+            ['u_13_huehue', 'TRX Huehuetenango', 'solicitante', 'TRX Huehuetenango', 'Guatemala', 'huehuetenango@tiendastrofex.com', '+502 2200-0013', '1'],
+            ['u_14_mazate', 'TRX Mazatenango', 'solicitante', 'TRX Mazatenango', 'Guatemala', 'mazatenango@tiendastrofex.com', '+502 2200-0014', '1'],
+            ['u_15_villanueva', 'TRX Villa Nueva', 'solicitante', 'TRX Villa Nueva', 'Guatemala', 'villanueva@tiendastrofex.com', '+502 2200-0015', '1'],
+            ['u_16_xela', 'TRX Xela', 'solicitante', 'TRX Xela', 'Guatemala', 'xela@tiendastrofex.com', '+502 2200-0016', '1'],
+
+            // Centroamérica (solo el nombre del país)
+            ['u_17_sv', 'El Salvador', 'solicitante', 'El Salvador', 'El Salvador', 'elsalvador@munditrofeos.com', '+503 7711-8899', '1'],
+            ['u_18_hn', 'Honduras', 'solicitante', 'Honduras', 'Honduras', 'honduras@munditrofeos.com', '+504 9900-1122', '1'],
+            ['u_19_ni', 'Nicaragua', 'solicitante', 'Nicaragua', 'Nicaragua', 'nicaragua@munditrofeos.com', '+505 8811-2233', '1'],
+            ['u_20_cr', 'Costa Rica', 'solicitante', 'Costa Rica', 'Costa Rica', 'costarica@munditrofeos.com', '+506 8833-4455', '1'],
+            ['u_21_bz', 'Belice', 'solicitante', 'Belice', 'Belice', 'belice@munditrofeos.com', '+501 610-1122', '1'],
+
+            // Técnicos / Administradores IT
+            ['t1', 'Maynor Cuyuche', 'admin', 'Sede Central IT', 'Guatemala', 'maynor.cuyuche@munditrofeos.com', '+502 4400-9900', '1'],
+            ['t2', 'IT1', 'admin', 'Sede Central IT', 'Guatemala', 'it1@munditrofeos.com', '+502 4400-9911', '1'],
+            ['t3', 'IT2', 'admin', 'Sede Central IT', 'Guatemala', 'it2@munditrofeos.com', '+502 4400-9922', '1']
+        ];
+
+        // Limpiar registros legacy ('u1'..'u5') y sembrar usuarios por defecto solo si aún no está actualizado
+        $pdo->exec("DELETE FROM usuarios WHERE id IN ('u1', 'u2', 'u3', 'u4', 'u5')");
+        $hasMaynor = (int) $pdo->query("SELECT COUNT(*) FROM usuarios WHERE id = 't1' AND nombre = 'Maynor Cuyuche'")->fetchColumn();
+        if ($hasMaynor === 0) {
+            $stmtUser = $pdo->prepare("
+                INSERT INTO usuarios (id, nombre, rol, sucursal, pais, email, telefono, pin)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    nombre = VALUES(nombre),
+                    sucursal = VALUES(sucursal),
+                    pais = VALUES(pais),
+                    email = VALUES(email),
+                    telefono = VALUES(telefono),
+                    pin = VALUES(pin)
+            ");
             foreach ($usuarios as $u) {
-                $stmt->execute($u);
+                $stmtUser->execute($u);
             }
+            $pdo->exec("UPDATE tickets SET tecnico_nombre = 'Maynor Cuyuche' WHERE tecnico_id = 't1'");
+            $pdo->exec("UPDATE tickets SET tecnico_nombre = 'IT1' WHERE tecnico_id = 't2'");
+            $pdo->exec("UPDATE tickets SET tecnico_nombre = 'IT2' WHERE tecnico_id = 't3'");
         }
 
         // Seed tickets iniciales si está vacía
@@ -164,7 +207,7 @@ class Database {
                     'pais' => 'Guatemala',
                     'equipo_serie' => 'IMP-Z9-01 / Epson TM-T20',
                     'tecnico_id' => 't2',
-                    'tecnico_nombre' => 'Kevin Hernández (Redes & Equipos)',
+                    'tecnico_nombre' => 'IT1',
                     'evidencia_base64' => null,
                     'notas_resolucion' => 'Se revisó vía AnyDesk la cola de impresión y se programó limpieza de cabezal térmico.',
                     'comentarios_json' => json_encode([
@@ -175,7 +218,7 @@ class Database {
                             'text' => 'Adjunto reporte, tenemos clientes en fila esperando factura.'
                         ],
                         [
-                            'author' => 'Kevin Hernández (Redes & Equipos)',
+                            'author' => 'IT1',
                             'role' => 'Soporte IT',
                             'date' => date('d/m/Y H:i', strtotime($t1Date . ' +15 minutes')),
                             'text' => 'Recibido Andrea, me conecto por AnyDesk en 3 minutos para desviar la impresión a Caja 2 mientras destrabamos la cuchilla.'
@@ -201,7 +244,7 @@ class Database {
                     'pais' => 'El Salvador',
                     'equipo_serie' => 'POS-SV-CAJA01',
                     'tecnico_id' => 't3',
-                    'tecnico_nombre' => 'Sofía Méndez (Sistemas POS & ERP)',
+                    'tecnico_nombre' => 'IT2',
                     'evidencia_base64' => null,
                     'notas_resolucion' => '',
                     'comentarios_json' => json_encode([
@@ -232,12 +275,12 @@ class Database {
                     'pais' => 'Honduras',
                     'equipo_serie' => 'PC-VENTAS-SPS03',
                     'tecnico_id' => 't1',
-                    'tecnico_nombre' => 'Ing. Diego Ramírez (Soporte IT Nivel 2)',
+                    'tecnico_nombre' => 'Maynor Cuyuche',
                     'evidencia_base64' => null,
                     'notas_resolucion' => 'Cuenta creada en Microsoft 365 y credenciales enviadas al encargado de tienda.',
                     'comentarios_json' => json_encode([
                         [
-                            'author' => 'Ing. Diego Ramírez (Soporte IT Nivel 2)',
+                            'author' => 'Maynor Cuyuche',
                             'role' => 'Soporte IT',
                             'date' => date('d/m/Y H:i', strtotime($t3Date . ' +2 hours')),
                             'text' => 'Cuenta activada y permisos asignados en módulo de facturación.'

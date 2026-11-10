@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mundi Trofeos · Tiendas Trofex · Premia - Sistema de Tickets & Mesa de Ayuda IT (PHP + MySQL)</title>
-  <link rel="stylesheet" href="css/styles.css?v=2.0">
+  <link rel="stylesheet" href="css/styles.css?v=3.1">
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- HTML2PDF.js for PDF Ticket Export -->
@@ -33,8 +33,8 @@
       </div>
 
       <div class="nav-user-controls">
-        <!-- Role Switcher Nav -->
-        <div class="role-switcher-nav" id="nav-role-switcher">
+        <!-- Role Switcher Nav (Oculto para separar completamente Vista Tienda y Vista Admin/IT) -->
+        <div class="role-switcher-nav" id="nav-role-switcher" style="display: none;">
           <button type="button" class="nav-role-btn active" id="nbtn-solicitante" onclick="switchWorkspaceRole('solicitante')">
             <i data-lucide="life-buoy" style="width: 14px; height: 14px;"></i> Modo Solicitante / Tienda
           </button>
@@ -43,12 +43,32 @@
           </button>
         </div>
 
-        <!-- User Badge -->
-        <div class="user-profile-badge">
-          <div class="user-avatar-circle" id="user-avatar-text">U</div>
-          <div style="display: flex; flex-direction: column;">
-            <span class="user-name-text" id="user-display-name">Usuario</span>
-            <span class="user-role-text" id="user-display-role">Solicitante</span>
+        <!-- User Badge + Dropdown Menu (Admin, IT1, IT2) -->
+        <div class="user-profile-dropdown-wrapper" id="user-profile-dropdown-wrapper">
+          <div class="user-profile-badge" id="user-profile-badge" onclick="toggleUserDropdownMenu(event)">
+            <div class="user-avatar-circle" id="user-avatar-text">U</div>
+            <div style="display: flex; flex-direction: column;">
+              <span class="user-name-text" id="user-display-name">Usuario</span>
+              <span class="user-role-text" id="user-display-role">Solicitante</span>
+            </div>
+            <i data-lucide="chevron-down" id="user-badge-chevron" style="width: 15px; height: 15px; color: var(--text-secondary); display: none;"></i>
+          </div>
+
+          <div class="user-dropdown-menu" id="user-dropdown-menu">
+            <div class="user-dropdown-header">Panel de Administración</div>
+            <button type="button" class="user-dropdown-item" onclick="openStatsModal(); closeUserDropdownMenu();">
+              <i data-lucide="bar-chart-3" style="width: 15px; height: 15px;"></i> Estadísticas
+            </button>
+            <div class="user-dropdown-header" style="margin-top: 4px; border-top: 1px solid var(--border-light); padding-top: 8px;">Gestión de Usuarios</div>
+            <button type="button" class="user-dropdown-item" onclick="openNewUserModal(); closeUserDropdownMenu();">
+              <i data-lucide="user-plus" style="width: 15px; height: 15px;"></i> Agregar Usuario
+            </button>
+            <button type="button" class="user-dropdown-item" id="menu-item-edit-users" onclick="openManageUsersModal('edit'); closeUserDropdownMenu();">
+              <i data-lucide="edit-3" style="width: 15px; height: 15px;"></i> Modificar Usuarios
+            </button>
+            <button type="button" class="user-dropdown-item danger-item" id="menu-item-block-users" onclick="openManageUsersModal('block'); closeUserDropdownMenu();">
+              <i data-lucide="lock" style="width: 15px; height: 15px;"></i> Bloquear Usuario
+            </button>
           </div>
         </div>
 
@@ -85,6 +105,11 @@
                 Sucursal: <strong id="preview-branch-name" style="color: var(--text-primary);">—</strong>
               </div>
 
+              <div class="form-field">
+                <label class="form-label-custom">Contraseña *</label>
+                <input type="password" class="form-input-custom" id="login-store-pass" required placeholder="Ingresa tu contraseña de sucursal" autocomplete="current-password">
+              </div>
+
               <button type="submit" class="btn-primary-lg">
                 <i data-lucide="log-in" style="width: 18px; height: 18px;"></i> Ingresar al Sistema de Tickets
               </button>
@@ -106,14 +131,17 @@
               </div>
 
               <div class="form-field">
-                <label class="form-label-custom">Usuario o Correo Admin *</label>
-                <input type="text" class="form-input-custom" id="login-admin-user" list="admin-users-datalist" required placeholder="Ej. admin, it.soporte@munditrofeos.com o nombre" autocomplete="username">
-                <datalist id="admin-users-datalist"></datalist>
+                <label class="form-label-custom">Usuario Admin / Soporte IT *</label>
+                <select class="form-select-custom" id="login-admin-user" required>
+                  <option value="t1">Maynor Cuyuche (Administrador General)</option>
+                  <option value="t2">IT1 (Soporte IT)</option>
+                  <option value="t3">IT2 (Soporte IT)</option>
+                </select>
               </div>
 
               <div class="form-field">
                 <label class="form-label-custom">Contraseña *</label>
-                <input type="password" class="form-input-custom" id="login-admin-pass" required placeholder="Ingresa tu contraseña (ej. admin123)" autocomplete="current-password">
+                <input type="password" class="form-input-custom" id="login-admin-pass" required placeholder="Ingresa tu contraseña" autocomplete="current-password">
               </div>
 
               <button type="submit" class="btn-primary-lg">
@@ -170,7 +198,7 @@
             </div>
           </div>
 
-          <div class="kpi-card clickable" data-qtab="CRITICAL" onclick="setQuickTabFilter('CRITICAL')" title="Haz clic para filtrar tickets críticos activos">
+          <div class="kpi-card clickable" id="kpi-card-critical" data-qtab="CRITICAL" onclick="setQuickTabFilter('CRITICAL')" title="Haz clic para filtrar tickets críticos activos" style="display: none;">
             <div class="kpi-info">
               <span>Prioridad Crítica</span>
               <h3 id="kpi-critical" style="color: var(--rose);">0</h3>
@@ -194,10 +222,10 @@
         </div>
 
         <!-- MAIN WORKSPACE GRID -->
-        <div class="workspace-grid">
+        <div class="workspace-grid" id="main-workspace-grid">
 
           <!-- LEFT PANEL: CREATE NEW TICKET -->
-          <div class="card-panel">
+          <div class="card-panel" id="panel-new-ticket">
             <div class="card-header">
               <div class="card-header-title">
                 <div style="width: 36px; height: 36px; border-radius: 10px; background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center;">
@@ -218,37 +246,35 @@
                   <input type="text" class="form-input-custom" id="tkt-title" required placeholder="Ej. Impresora de facturación no imprime en Caja 1">
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                  <div class="form-field">
-                    <label class="form-label-custom">Categoría (SLA) *</label>
-                    <select class="form-select-custom" id="tkt-category" required></select>
-                  </div>
-
-                  <div class="form-field">
-                    <label class="form-label-custom">País *</label>
-                    <select class="form-select-custom" id="tkt-country" required>
-                      <option value="Guatemala">Guatemala</option>
-                      <option value="El Salvador">El Salvador</option>
-                      <option value="Honduras">Honduras</option>
-                      <option value="Nicaragua">Nicaragua</option>
-                      <option value="Costa Rica">Costa Rica</option>
-                    </select>
-                  </div>
+                <div class="form-field" id="form-group-category">
+                  <label class="form-label-custom">Tipo de Gestión / Problema *</label>
+                  <select class="form-select-custom" id="tkt-category" required>
+                    <option value="cat_imp">Impresoras</option>
+                    <option value="cat_red">Red</option>
+                    <option value="cat_inst">Instalación de Equipos</option>
+                    <option value="cat_mant">Mantenimiento y Respaldo de Datos</option>
+                    <option value="cat_comp">Compras de Nuevos Equipos</option>
+                  </select>
                 </div>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                   <div class="form-field">
-                    <label class="form-label-custom">Sucursal / Tienda / Área *</label>
-                    <input type="text" class="form-input-custom" id="tkt-branch" required placeholder="Ej. Tienda Trofex Zona 9">
+                    <label class="form-label-custom">País *</label>
+                    <input type="text" class="form-input-custom" id="tkt-country" readonly required style="background: var(--bg-card-subtle); font-weight: 700; color: var(--text-primary); cursor: not-allowed;">
                   </div>
 
                   <div class="form-field">
-                    <label class="form-label-custom">Equipo / Serie / AnyDesk</label>
-                    <input type="text" class="form-input-custom" id="tkt-asset" placeholder="Ej. PC-CAJA1 / AnyDesk 123 456">
+                    <label class="form-label-custom">Sucursal / Tienda *</label>
+                    <input type="text" class="form-input-custom" id="tkt-branch" readonly required style="background: var(--bg-card-subtle); font-weight: 700; color: var(--text-primary); cursor: not-allowed;">
                   </div>
                 </div>
 
                 <div class="form-field">
+                  <label class="form-label-custom" id="lbl-tkt-asset">AnyDesk</label>
+                  <input type="text" class="form-input-custom" id="tkt-asset" placeholder="Ej. 123 456 789">
+                </div>
+
+                <div class="form-field" id="form-group-priority" style="display: none;">
                   <label class="form-label-custom">Nivel de Prioridad *</label>
                   <input type="hidden" id="tkt-priority" value="Media">
                   <div class="priority-selector-grid">
@@ -270,7 +296,7 @@
                     <input type="file" id="tkt-attachment" accept="image/*" style="display: none;" onchange="handleAttachmentPreview(event)">
                     <i data-lucide="camera" style="width: 22px; height: 22px; color: var(--primary); margin-bottom: 4px;"></i>
                     <div style="font-size: 12px; font-weight: 700; color: var(--text-primary);">Haz clic para adjuntar foto o captura de pantalla</div>
-                    <div style="font-size: 11px; color: var(--text-muted);">Formatos JPG, PNG (evidencia del error o equipo)</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">Formatos JPG, PNG · Tamaño máximo 10 MB</div>
                   </label>
                   <div id="tkt-attachment-preview-box" style="display: none; margin-top: 8px; position: relative;">
                     <img id="tkt-attachment-img" src="" alt="Vista previa" style="width: 100%; max-height: 160px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-light);">
@@ -298,7 +324,10 @@
                 </div>
               </div>
 
-              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <div id="admin-header-actions" style="display: none; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="btn-secondary-custom" id="btn-admin-add-user" onclick="openNewUserModal()" title="Registrar nuevo usuario de Guatemala o Centroamérica">
+                  <i data-lucide="user-plus" style="width: 14px; height: 14px;"></i> Agregar Usuario
+                </button>
                 <button type="button" class="btn-secondary-custom" onclick="syncFromServer(true)" title="Actualizar bandeja de tickets">
                   <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Actualizar
                 </button>
@@ -321,7 +350,7 @@
                   <button type="button" class="quick-tab-btn" data-qtab="PROGRESS" onclick="setQuickTabFilter('PROGRESS')">
                     En Proceso <span class="quick-tab-count" id="qcount-progress">0</span>
                   </button>
-                  <button type="button" class="quick-tab-btn" data-qtab="CRITICAL" onclick="setQuickTabFilter('CRITICAL')">
+                  <button type="button" class="quick-tab-btn" id="qtab-btn-critical" data-qtab="CRITICAL" onclick="setQuickTabFilter('CRITICAL')" style="display: none;">
                     Críticos <span class="quick-tab-count" id="qcount-critical">0</span>
                   </button>
                   <button type="button" class="quick-tab-btn" data-qtab="RESOLVED" onclick="setQuickTabFilter('RESOLVED')">
@@ -329,7 +358,7 @@
                   </button>
                 </div>
 
-                <div class="view-switcher-bar">
+                <div class="view-switcher-bar" id="admin-view-switcher" style="display: none;">
                   <button type="button" class="view-mode-btn active" id="btn-view-table" onclick="switchViewMode('table')">
                     <i data-lucide="table-2" style="width: 14px; height: 14px;"></i> Tabla
                   </button>
@@ -341,9 +370,9 @@
 
               <!-- FILTER BAR -->
               <div class="filter-bar">
-                <input type="text" class="form-input-custom" id="filter-search" placeholder="Buscar por código (TKT-...), asunto, tienda, técnico o solicitante..." oninput="renderTicketsView()" style="flex: 2; min-width: 220px;">
+                <input type="text" class="form-input-custom" id="filter-search" placeholder="Buscar por número de ticket (TKT-...)..." oninput="renderTicketsView()" style="flex: 2; min-width: 220px;">
 
-                <select class="form-select-custom" id="filter-status" onchange="renderTicketsView()" style="flex: 1; min-width: 150px;">
+                <select class="form-select-custom" id="filter-status" onchange="renderTicketsView()" style="display: none; flex: 1; min-width: 150px;">
                   <option value="ALL">Todos los Estados</option>
                   <option value="Abierto">Abierto</option>
                   <option value="En Proceso">En Proceso</option>
@@ -352,7 +381,7 @@
                   <option value="Cerrado">Cerrado</option>
                 </select>
 
-                <select class="form-select-custom" id="filter-priority" onchange="renderTicketsView()" style="flex: 1; min-width: 140px;">
+                <select class="form-select-custom" id="filter-priority" onchange="renderTicketsView()" style="display: none; flex: 1; min-width: 140px;">
                   <option value="ALL">Toda Prioridad</option>
                   <option value="Crítica">Crítica</option>
                   <option value="Alta">Alta</option>
@@ -360,7 +389,7 @@
                   <option value="Baja">Baja</option>
                 </select>
 
-                <select class="form-select-custom" id="filter-category" onchange="renderTicketsView()" style="flex: 1; min-width: 170px;">
+                <select class="form-select-custom" id="filter-category" onchange="renderTicketsView()" style="display: none; flex: 1; min-width: 170px;">
                   <option value="ALL">Todas las Categorías</option>
                 </select>
               </div>
@@ -373,7 +402,7 @@
                       <th>Código / SLA</th>
                       <th>Asunto & Categoría</th>
                       <th>Sucursal / Solicitante</th>
-                      <th>Prioridad</th>
+                      <th id="th-priority-col" style="display: none;">Prioridad</th>
                       <th>Estado</th>
                       <th>Técnico Asignado</th>
                       <th style="text-align: right;">Acción</th>
@@ -449,8 +478,19 @@
 
           <!-- ADMIN / IT MANAGEMENT CONTROLS -->
           <div id="mdl-admin-controls" style="background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 16px; margin-bottom: 18px;">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--primary); font-weight: 800; font-size: 13px;">
-              <i data-lucide="sliders" style="width: 16px; height: 16px;"></i> Gestión Técnica del Ticket (Soporte IT)
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 8px; color: var(--primary); font-weight: 800; font-size: 13px;">
+                <i data-lucide="sliders" style="width: 16px; height: 16px;"></i> Gestión Técnica del Ticket (Soporte IT)
+              </div>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <button type="button" class="btn-secondary-custom" id="btn-modal-claim-ticket" onclick="claimTicket(activeModalTicketId)" style="padding: 6px 12px; font-size: 12px; background: #10b981; color: #ffffff; border-color: #059669; font-weight: 800;">
+                  <i data-lucide="hand" style="width: 14px; height: 14px;"></i> Tomar Ticket
+                </button>
+                <button type="button" class="btn-secondary-custom" id="btn-modal-release-ticket" onclick="releaseTicket(activeModalTicketId)" style="padding: 6px 12px; font-size: 12px; background: #fffbeb; color: #b45309; border-color: #fde68a; font-weight: 800; display: none;">
+                  <i data-lucide="user-minus" style="width: 14px; height: 14px;"></i> Dejar Ticket
+                </button>
+                <span id="mdl-locked-banner" style="display: none; align-items: center; gap: 5px; padding: 6px 11px; font-size: 12px; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 8px; font-weight: 800;"></span>
+              </div>
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 12px;">
@@ -487,7 +527,7 @@
             </div>
 
             <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-              <button type="button" class="btn-primary-lg" onclick="saveTicketAdminChanges()" style="width: auto; padding: 9px 18px; font-size: 13px;">
+              <button type="button" class="btn-primary-lg" id="btn-save-admin-changes" onclick="saveTicketAdminChanges()" style="width: auto; padding: 9px 18px; font-size: 13px;">
                 <i data-lucide="save" style="width: 15px; height: 15px;"></i> Guardar Cambios de Soporte
               </button>
             </div>
@@ -522,13 +562,167 @@
       </div>
     </div>
 
+    <!-- ===================================================================
+         MODAL: REGISTRAR O MODIFICAR USUARIO (GUATEMALA & CENTROAMÉRICA)
+         =================================================================== -->
+    <div class="modal-backdrop" id="modal-new-user">
+      <div class="modal-dialog" style="max-width: 520px;">
+        <div class="modal-header">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 34px; height: 34px; border-radius: 10px; background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center;">
+              <i data-lucide="user-plus" style="width: 18px; height: 18px;"></i>
+            </div>
+            <h3 id="modal-user-form-title" style="font-size: 16px; font-weight: 800;">Registrar Usuario / Encargado de Tienda</h3>
+          </div>
+          <button type="button" class="btn-secondary-custom" onclick="closeNewUserModal()" style="padding: 6px 10px;">✕</button>
+        </div>
+
+        <form id="form-new-user" onsubmit="handleCreateUserSubmit(event)">
+          <input type="hidden" id="nu-edit-id" value="">
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px;">
+              <div class="form-field">
+                <label class="form-label-custom">Nombre del Usuario / Tienda *</label>
+                <input type="text" class="form-input-custom" id="nu-name" required placeholder="Ej. TRX Coban o IT3">
+              </div>
+
+              <div class="form-field">
+                <label class="form-label-custom">Rol del Perfil *</label>
+                <select class="form-select-custom" id="nu-role" onchange="handleNewUserCountryChange()">
+                  <option value="solicitante">Tienda / Sucursal</option>
+                  <option value="admin">Soporte IT / Admin</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-field">
+                <label class="form-label-custom">País *</label>
+                <select class="form-select-custom" id="nu-country" required onchange="handleNewUserCountryChange()">
+                  <option value="Guatemala">Guatemala</option>
+                  <option value="El Salvador">El Salvador</option>
+                  <option value="Honduras">Honduras</option>
+                  <option value="Nicaragua">Nicaragua</option>
+                  <option value="Costa Rica">Costa Rica</option>
+                  <option value="Belice">Belice</option>
+                </select>
+              </div>
+
+              <div class="form-field">
+                <label class="form-label-custom">Sucursal / Área *</label>
+                <select class="form-select-custom" id="nu-branch" required></select>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div class="form-field">
+                <label class="form-label-custom">Correo Electrónico</label>
+                <input type="email" class="form-input-custom" id="nu-email" placeholder="usuario@tiendastrofex.com">
+              </div>
+
+              <div class="form-field">
+                <label class="form-label-custom">Teléfono</label>
+                <input type="text" class="form-input-custom" id="nu-phone" placeholder="+502 0000-0000">
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label class="form-label-custom">Contraseña de Acceso *</label>
+              <input type="text" class="form-input-custom" id="nu-pin" required value="1" placeholder="Contraseña para el usuario (por defecto: 1)">
+            </div>
+          </div>
+
+          <div class="modal-footer" style="justify-content: flex-end;">
+            <button type="button" class="btn-secondary-custom" onclick="closeNewUserModal()">Cancelar</button>
+            <button type="submit" class="btn-primary-lg" style="width: auto; padding: 10px 20px;">
+              <i data-lucide="check" style="width: 16px; height: 16px;"></i> Guardar Usuario
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL: GESTIÓN DE USUARIOS (MODIFICAR O ELIMINAR)
+         =================================================================== -->
+    <div class="modal-backdrop" id="modal-manage-users">
+      <div class="modal-dialog" style="max-width: 780px;">
+        <div class="modal-header">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 34px; height: 34px; border-radius: 10px; background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center;">
+              <i data-lucide="users" style="width: 18px; height: 18px;"></i>
+            </div>
+            <div>
+              <h3 id="modal-manage-users-title" style="font-size: 16px; font-weight: 800;">Gestión de Usuarios y Sucursales</h3>
+              <p id="modal-manage-users-subtitle" style="font-size: 12px; color: var(--text-secondary);">Agrega, modifica o elimina usuarios de tiendas y perfiles de Soporte IT</p>
+            </div>
+          </div>
+          <button type="button" class="btn-secondary-custom" onclick="closeManageUsersModal()" style="padding: 6px 10px;">✕</button>
+        </div>
+
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px;">
+          <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <input type="text" class="form-input-custom" id="manage-users-search" placeholder="Buscar usuario por nombre, sucursal o país..." oninput="renderManageUsersTable()" style="flex: 1; min-width: 220px;">
+            <button type="button" class="btn-primary-lg" onclick="closeManageUsersModal(); openNewUserModal();" style="width: auto; padding: 9px 16px; font-size: 12.5px;">
+              <i data-lucide="user-plus" style="width: 15px; height: 15px;"></i> + Agregar Nuevo Usuario
+            </button>
+          </div>
+
+          <div class="table-responsive" style="max-height: 400px; overflow-y: auto; border: 1px solid var(--border-light); border-radius: 10px;">
+            <table class="enterprise-table">
+              <thead>
+                <tr>
+                  <th>Usuario / Perfil</th>
+                  <th>Sucursal & País</th>
+                  <th>Rol</th>
+                  <th>Contraseña</th>
+                  <th style="text-align: right;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="manage-users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="justify-content: flex-end;">
+          <button type="button" class="btn-secondary-custom" onclick="closeManageUsersModal()">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL: ESTADÍSTICAS Y RENDIMIENTO DE SOPORTE IT
+         =================================================================== -->
+    <div class="modal-backdrop" id="modal-admin-stats">
+      <div class="modal-dialog" style="max-width: 760px;">
+        <div class="modal-header">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: var(--emerald-bg); color: var(--emerald); display: flex; align-items: center; justify-content: center;">
+              <i data-lucide="bar-chart-3" style="width: 20px; height: 20px;"></i>
+            </div>
+            <div>
+              <h3 style="font-size: 16.5px; font-weight: 800;">Estadísticas de Tickets Resueltos</h3>
+              <p style="font-size: 12px; color: var(--text-secondary);">Comparativa de productividad y tickets solucionados por integrante de Soporte IT</p>
+            </div>
+          </div>
+          <button type="button" class="btn-secondary-custom" onclick="closeStatsModal()" style="padding: 6px 10px;">✕</button>
+        </div>
+
+        <div class="modal-body" id="stats-modal-body" style="display: flex; flex-direction: column; gap: 18px;"></div>
+
+        <div class="modal-footer" style="justify-content: flex-end;">
+          <button type="button" class="btn-secondary-custom" onclick="closeStatsModal()">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
     <!-- TOAST CONTAINER -->
     <div class="toast-stack" id="toast-container"></div>
 
   </div>
 
-  <script src="js/data.js?v=2.0"></script>
-  <script src="js/app.js?v=2.0"></script>
+  <script src="js/data.js?v=4.4"></script>
+  <script src="js/app.js?v=4.4"></script>
 </body>
 
 </html>
