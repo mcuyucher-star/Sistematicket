@@ -502,6 +502,9 @@ $serverYear = date('Y');
                 <button type="button" class="btn-secondary-custom" id="btn-modal-release-ticket" onclick="releaseTicket(activeModalTicketId)" style="padding: 6px 12px; font-size: 12px; background: #fffbeb; color: #b45309; border-color: #fde68a; font-weight: 800; display: none;">
                   <i data-lucide="user-minus" style="width: 14px; height: 14px;"></i> Dejar Ticket
                 </button>
+                <button type="button" class="btn-secondary-custom" id="btn-modal-reopen-ticket" onclick="reopenTicketByMainAdmin(activeModalTicketId)" style="padding: 6px 12px; font-size: 12px; background: #eef2ff; color: #4338ca; border-color: #a5b4fc; font-weight: 800; display: none;">
+                  <i data-lucide="rotate-ccw" style="width: 14px; height: 14px;"></i> Reabrir Ticket
+                </button>
                 <span id="mdl-locked-banner" style="display: none; align-items: center; gap: 5px; padding: 6px 11px; font-size: 12px; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 8px; font-weight: 800;"></span>
               </div>
             </div>
@@ -551,11 +554,15 @@ $serverYear = date('Y');
             <label class="form-label-custom">Bitácora de Seguimiento y Comentarios</label>
             <div class="comments-box" id="mdl-comments-list" style="margin-top: 6px;"></div>
 
-            <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <div id="mdl-comment-input-row" style="display: flex; gap: 8px; margin-top: 10px;">
               <input type="text" class="form-input-custom" id="mdl-new-comment" placeholder="Escribe un comentario o actualización (presiona Enter para enviar)...">
-              <button type="button" class="btn-secondary-custom" onclick="addTicketComment()" style="white-space: nowrap; background: var(--dark-slate); color: #fff; border-color: var(--dark-slate);">
+              <button type="button" class="btn-secondary-custom" id="btn-send-comment" onclick="addTicketComment()" style="white-space: nowrap; background: var(--dark-slate); color: #fff; border-color: var(--dark-slate);">
                 <i data-lucide="message-square-plus" style="width: 15px; height: 15px;"></i> Enviar
               </button>
+            </div>
+            <div id="mdl-comment-closed-notice" style="display: none; align-items: center; gap: 8px; margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; font-size: 12.5px; font-weight: 700;">
+              <i data-lucide="lock" style="width: 15px; height: 15px; color: #64748b; flex-shrink: 0;"></i>
+              <span id="mdl-comment-closed-text">Este ticket ya fue finalizado y cerrado para nuevos comentarios. Solo el Administrador General puede reabrirlo.</span>
             </div>
           </div>
         </div>
@@ -579,7 +586,7 @@ $serverYear = date('Y');
          MODAL: REGISTRAR O MODIFICAR USUARIO (GUATEMALA & CENTROAMÉRICA)
          =================================================================== -->
     <div class="modal-backdrop" id="modal-new-user">
-      <div class="modal-dialog" style="max-width: 520px;">
+      <div class="modal-dialog" style="max-width: 600px;">
         <div class="modal-header">
           <div style="display: flex; align-items: center; gap: 10px;">
             <div style="width: 34px; height: 34px; border-radius: 10px; background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center;">
@@ -592,18 +599,19 @@ $serverYear = date('Y');
 
         <form id="form-new-user" onsubmit="handleCreateUserSubmit(event)">
           <input type="hidden" id="nu-edit-id" value="">
-          <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px;">
-            <div style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px;">
+          <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; max-height: 75vh; overflow-y: auto;">
+            <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px;">
               <div class="form-field">
                 <label class="form-label-custom">Nombre del Usuario / Tienda *</label>
                 <input type="text" class="form-input-custom" id="nu-name" required placeholder="Ej. TRX Coban o IT3">
               </div>
 
               <div class="form-field">
-                <label class="form-label-custom">Rol del Perfil *</label>
-                <select class="form-select-custom" id="nu-role" onchange="handleNewUserCountryChange()">
+                <label class="form-label-custom">Rol en el Sistema *</label>
+                <select class="form-select-custom" id="nu-role" onchange="handleNewUserRoleChange()">
                   <option value="solicitante">Tienda / Sucursal</option>
-                  <option value="admin">Soporte IT / Admin</option>
+                  <option value="soporte_it">Soporte Técnico IT</option>
+                  <option value="admin_general">Administrador General</option>
                 </select>
               </div>
             </div>
@@ -627,7 +635,7 @@ $serverYear = date('Y');
               </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 0.8fr; gap: 10px;">
               <div class="form-field">
                 <label class="form-label-custom">Correo Electrónico</label>
                 <input type="email" class="form-input-custom" id="nu-email" placeholder="usuario@tiendastrofex.com">
@@ -637,18 +645,78 @@ $serverYear = date('Y');
                 <label class="form-label-custom">Teléfono</label>
                 <input type="text" class="form-input-custom" id="nu-phone" placeholder="+502 0000-0000">
               </div>
+
+              <div class="form-field">
+                <label class="form-label-custom">Contraseña *</label>
+                <input type="text" class="form-input-custom" id="nu-pin" required value="1" placeholder="1">
+              </div>
             </div>
 
-            <div class="form-field">
-              <label class="form-label-custom">Contraseña de Acceso *</label>
-              <input type="text" class="form-input-custom" id="nu-pin" required value="1" placeholder="Contraseña para el usuario (por defecto: 1)">
+            <!-- PANEL DE ADMINISTRACIÓN DE ROL Y ACCIONES PERMITIDAS -->
+            <div id="nu-permissions-box" style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: 12px; padding: 14px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 7px;">
+                  <i data-lucide="shield-check" style="width: 16px; height: 16px; color: var(--primary);"></i>
+                  <span style="font-size: 12.5px; font-weight: 800; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.03em;">
+                    Acciones Permitidas en el Sistema
+                  </span>
+                </div>
+                <span id="nu-permissions-summary-badge" style="font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: var(--primary-light); color: var(--primary);">
+                  Permisos según Rol
+                </span>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #ffffff; border: 1px solid var(--border-light); border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                  <input type="checkbox" id="perm-create_tickets" onchange="updatePermissionsSummaryBadge()" style="width: 15px; height: 15px; accent-color: var(--primary);">
+                  <span>Crear tickets de soporte</span>
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #ffffff; border: 1px solid var(--border-light); border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                  <input type="checkbox" id="perm-attend_tickets" onchange="updatePermissionsSummaryBadge()" style="width: 15px; height: 15px; accent-color: var(--primary);">
+                  <span>Tomar / Dejar tickets y estados</span>
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #ffffff; border: 1px solid var(--border-light); border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                  <input type="checkbox" id="perm-change_priority" onchange="updatePermissionsSummaryBadge()" style="width: 15px; height: 15px; accent-color: var(--primary);">
+                  <span>Cambiar prioridad de tickets</span>
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #ffffff; border: 1px solid var(--border-light); border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                  <input type="checkbox" id="perm-delete_tickets" onchange="updatePermissionsSummaryBadge()" style="width: 15px; height: 15px; accent-color: var(--primary);">
+                  <span>Eliminar tickets del sistema</span>
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #ffffff; border: 1px solid var(--border-light); border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                  <input type="checkbox" id="perm-export_reports" onchange="updatePermissionsSummaryBadge()" style="width: 15px; height: 15px; accent-color: var(--primary);">
+                  <span>Descargar PDF y exportar Excel</span>
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #ffffff; border: 1px solid var(--border-light); border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                  <input type="checkbox" id="perm-view_stats" onchange="updatePermissionsSummaryBadge()" style="width: 15px; height: 15px; accent-color: var(--primary);">
+                  <span>Ver panel de Estadísticas IT</span>
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #ffffff; border: 1px solid var(--border-light); border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                  <input type="checkbox" id="perm-create_users" onchange="updatePermissionsSummaryBadge()" style="width: 15px; height: 15px; accent-color: var(--primary);">
+                  <span>Agregar nuevos usuarios</span>
+                </label>
+
+                <label style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #ffffff; border: 1px solid var(--border-light); border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                  <input type="checkbox" id="perm-manage_users" onchange="updatePermissionsSummaryBadge()" style="width: 15px; height: 15px; accent-color: var(--primary);">
+                  <span>Modificar y bloquear usuarios</span>
+                </label>
+              </div>
+              <div id="nu-permissions-note" style="font-size: 11px; color: var(--text-muted); margin-top: 8px; font-weight: 500;">
+                Al cambiar el rol se marcan sus permisos predeterminados. El Administrador General puede personalizar cada acción.
+              </div>
             </div>
           </div>
 
           <div class="modal-footer" style="justify-content: flex-end;">
             <button type="button" class="btn-secondary-custom" onclick="closeNewUserModal()">Cancelar</button>
             <button type="submit" class="btn-primary-lg" style="width: auto; padding: 10px 20px;">
-              <i data-lucide="check" style="width: 16px; height: 16px;"></i> Guardar Usuario
+              <i data-lucide="check" style="width: 16px; height: 16px;"></i> Guardar Usuario y Permisos
             </button>
           </div>
         </form>
@@ -659,15 +727,15 @@ $serverYear = date('Y');
          MODAL: GESTIÓN DE USUARIOS (MODIFICAR O ELIMINAR)
          =================================================================== -->
     <div class="modal-backdrop" id="modal-manage-users">
-      <div class="modal-dialog" style="max-width: 780px;">
+      <div class="modal-dialog" style="max-width: 860px;">
         <div class="modal-header">
           <div style="display: flex; align-items: center; gap: 10px;">
             <div style="width: 34px; height: 34px; border-radius: 10px; background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center;">
               <i data-lucide="users" style="width: 18px; height: 18px;"></i>
             </div>
             <div>
-              <h3 id="modal-manage-users-title" style="font-size: 16px; font-weight: 800;">Gestión de Usuarios y Sucursales</h3>
-              <p id="modal-manage-users-subtitle" style="font-size: 12px; color: var(--text-secondary);">Agrega, modifica o elimina usuarios de tiendas y perfiles de Soporte IT</p>
+              <h3 id="modal-manage-users-title" style="font-size: 16px; font-weight: 800;">Gestión de Usuarios, Roles y Permisos</h3>
+              <p id="modal-manage-users-subtitle" style="font-size: 12px; color: var(--text-secondary);">Administra roles, acciones permitidas y accesos de tiendas y Soporte IT</p>
             </div>
           </div>
           <button type="button" class="btn-secondary-custom" onclick="closeManageUsersModal()" style="padding: 6px 10px;">✕</button>
@@ -687,7 +755,7 @@ $serverYear = date('Y');
                 <tr>
                   <th>Usuario / Perfil</th>
                   <th>Sucursal & País</th>
-                  <th>Rol</th>
+                  <th>Rol & Acciones Permitidas</th>
                   <th>Contraseña</th>
                   <th style="text-align: right;">Acciones</th>
                 </tr>

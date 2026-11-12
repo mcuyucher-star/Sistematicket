@@ -62,18 +62,30 @@ class Database {
                 id VARCHAR(32) PRIMARY KEY,
                 nombre VARCHAR(120) NOT NULL,
                 rol VARCHAR(30) NOT NULL DEFAULT 'solicitante',
+                subrol VARCHAR(40) DEFAULT NULL,
                 sucursal VARCHAR(120) NOT NULL,
                 pais VARCHAR(60) NOT NULL DEFAULT 'Guatemala',
                 email VARCHAR(120) NOT NULL,
                 telefono VARCHAR(40) DEFAULT NULL,
                 pin VARCHAR(30) DEFAULT '1234',
-                bloqueado TINYINT(1) NOT NULL DEFAULT 0
+                bloqueado TINYINT(1) NOT NULL DEFAULT 0,
+                permisos_json TEXT DEFAULT NULL
             ) ENGINE=InnoDB;
         ");
 
         $colBlock = $pdo->query("SHOW COLUMNS FROM usuarios LIKE 'bloqueado'")->fetch();
         if (!$colBlock) {
             $pdo->exec("ALTER TABLE usuarios ADD COLUMN bloqueado TINYINT(1) NOT NULL DEFAULT 0");
+        }
+
+        $colSubrol = $pdo->query("SHOW COLUMNS FROM usuarios LIKE 'subrol'")->fetch();
+        if (!$colSubrol) {
+            $pdo->exec("ALTER TABLE usuarios ADD COLUMN subrol VARCHAR(40) DEFAULT NULL");
+        }
+
+        $colPermisos = $pdo->query("SHOW COLUMNS FROM usuarios LIKE 'permisos_json'")->fetch();
+        if (!$colPermisos) {
+            $pdo->exec("ALTER TABLE usuarios ADD COLUMN permisos_json TEXT DEFAULT NULL");
         }
 
         // 3. Tabla de Tickets

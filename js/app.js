@@ -262,49 +262,7 @@ function refreshOpenModalRealtime() {
       activeEl.id === 'mdl-prio-select');
 
   if (!isEditingAdminFields) {
-    const btnModalClaim = document.getElementById('btn-modal-claim-ticket');
-    const btnModalRelease = document.getElementById('btn-modal-release-ticket');
-    const lockedBanner = document.getElementById('mdl-locked-banner');
-    const btnSaveAdmin = document.getElementById('btn-save-admin-changes');
-
-    const isTicketActive = isAdmin && ticket.status !== 'Resuelto' && ticket.status !== 'Cerrado';
-    const isUnassigned = !ticket.assignedTechId;
-    const isOwnedByMe = Boolean(currentUser && ticket.assignedTechId === currentUser.id);
-    const isLockedByOther = Boolean(isTicketActive && ticket.assignedTechId && !isOwnedByMe);
-
-    if (btnModalClaim) btnModalClaim.style.display = isTicketActive && isUnassigned ? 'inline-flex' : 'none';
-    if (btnModalRelease) btnModalRelease.style.display = isTicketActive && isOwnedByMe ? 'inline-flex' : 'none';
-    if (lockedBanner) {
-      if (isLockedByOther) {
-        lockedBanner.innerHTML = `<i data-lucide="lock" style="width: 14px; height: 14px;"></i> En atención por ${ticket.assignedTechName}`;
-        lockedBanner.style.display = 'inline-flex';
-      } else {
-        lockedBanner.style.display = 'none';
-      }
-    }
-
-    const statusSel = document.getElementById('mdl-status-select');
-    const techSel = document.getElementById('mdl-tech-select');
-    const prioSel = document.getElementById('mdl-prio-select');
-    const notesInp = document.getElementById('mdl-resolution-notes');
-
-    if (statusSel) {
-      statusSel.disabled = isLockedByOther;
-      statusSel.value = ticket.status;
-    }
-    if (techSel) {
-      techSel.disabled = isLockedByOther;
-      techSel.value = ticket.assignedTechId || '';
-    }
-    if (prioSel) {
-      prioSel.disabled = isLockedByOther;
-      prioSel.value = ticket.priority;
-    }
-    if (notesInp) {
-      notesInp.disabled = isLockedByOther;
-      notesInp.value = ticket.resolutionNotes || '';
-    }
-    if (btnSaveAdmin) btnSaveAdmin.style.display = isLockedByOther ? 'none' : 'inline-flex';
+    applyModalLockAndCommentState(ticket);
     refreshIcons();
   }
 }
@@ -324,11 +282,107 @@ function updateDbStatusBadge() {
 }
 
 /* =========================================================================
-   1. LOGIN & SESSION MANAGEMENT
+   1. LOGIN, ROLES, PERMISSIONS & SESSION MANAGEMENT
    ========================================================================= */
+const ALL_PERMISSION_KEYS = [
+  'create_tickets',
+  'attend_tickets',
+  'change_priority',
+  'delete_tickets',
+  'export_reports',
+  'view_stats',
+  'create_users',
+  'manage_users'
+];
+
+const PERMISSION_SHORT_LABELS = {
+  create_tickets: 'Crear tickets',
+  attend_tickets: 'Atender tickets',
+  change_priority: 'Cambiar prioridad',
+  delete_tickets: 'Eliminar tickets',
+  export_reports: 'Exportar PDF/CSV',
+  view_stats: 'Estadísticas',
+  create_users: 'Agregar usuarios',
+  manage_users: 'Modificar/Bloquear usuarios'
+};
+
+function getDefaultPermissionsForSubRole(subRole) {
+  if (subRole === 'admin_general') {
+    return {
+      create_tickets: false,
+      attend_tickets: true,
+      change_priority: true,
+      delete_tickets: true,
+      export_reports: true,
+      view_stats: true,
+      create_users: true,
+      manage_users: true
+    };
+  }
+  if (subRole === 'soporte_it') {
+    return {
+      create_tickets: false,
+      attend_tickets: true,
+      change_priority: true,
+      delete_tickets: false,
+      export_reports: true,
+      view_stats: true,
+      create_users: true,
+      manage_users: false
+    };
+  }
+  return {
+    create_tickets: true,
+    attend_tickets: false,
+    change_priority: false,
+    delete_tickets: false,
+    export_reports: true,
+    view_stats: false,
+    create_users: false,
+    manage_users: false
+  };
+}
+
+function getUserSubRole(user) {
+  if (!user) return 'solicitante';
+  if (user.id === 't1' || String(user.name || '').toLowerCase().includes('maynor')) {
+    return 'admin_general';
+  }
+  if (user.subRole === 'admin_general' || user.subRole === 'soporte_it' || user.subRole === 'solicitante') {
+    return user.subRole;
+  }
+  return user.role === 'admin' ? 'soporte_it' : 'solicitante';
+}
+
+function getUserEffectivePermissions(user) {
+  const subRole = getUserSubRole(user);
+  const defaults = getDefaultPermissionsForSubRole(subRole);
+  const custom = user && user.permissions && typeof user.permissions === 'object' ? user.permissions : {};
+  const merged = { ...defaults, ...custom };
+
+  // Garantizar que el Administrador Principal (Maynor Cuyuche) conserve siempre el control total
+  if (user && (user.id === 't1' || String(user.name || '').toLowerCase().includes('maynor'))) {
+    merged.attend_tickets = true;
+    merged.change_priority = true;
+    merged.delete_tickets = true;
+    merged.export_reports = true;
+    merged.view_stats = true;
+    merged.create_users = true;
+    merged.manage_users = true;
+  }
+  return merged;
+}
+
+function hasUserPermission(permKey, user = currentUser) {
+  if (!user) return false;
+  const perms = getUserEffectivePermissions(user);
+  return Boolean(perms[permKey]);
+}
+
 function isMainAdmin(user = currentUser) {
   if (!user || user.role !== 'admin') return false;
-  return user.id === 't1' || String(user.name || '').toLowerCase().includes('maynor');
+  if (user.id === 't1' || String(user.name || '').toLowerCase().includes('maynor')) return true;
+  return getUserSubRole(user) === 'admin_general' || hasUserPermission('manage_users', user);
 }
 
 function toggleAdminLoginMode(showAdmin) {
@@ -565,14 +619,15 @@ function updateRoleButtonsUI() {
     switcher.style.display = 'none';
   }
 
-  // En vista Admin / IT1 / IT2 ocultar el panel de crear nuevo ticket y expandir la consola a pantalla completa
+  // En vista Admin / IT1 / IT2 mostrar el panel de crear ticket solo si tiene el permiso 'create_tickets' activo
   const panelNewTicket = document.getElementById('panel-new-ticket');
   const workspaceGrid = document.getElementById('main-workspace-grid');
+  const canCreateTickets = !isAdmin || hasUserPermission('create_tickets', currentUser);
   if (panelNewTicket) {
-    panelNewTicket.style.display = isAdmin ? 'none' : 'block';
+    panelNewTicket.style.display = canCreateTickets ? 'block' : 'none';
   }
   if (workspaceGrid) {
-    workspaceGrid.style.gridTemplateColumns = isAdmin ? '1fr' : '';
+    workspaceGrid.style.gridTemplateColumns = canCreateTickets ? '' : '1fr';
   }
 
   // Ocultar botones "Actualizar" y "Exportar CSV" en la vista de tiendas / encargados de tienda
@@ -584,12 +639,12 @@ function updateRoleButtonsUI() {
     btnAddUser.style.display = 'none';
   }
 
-  // Activar menú desplegable de gestión de usuarios en el perfil de Admin, IT1 e IT2
+  // Activar menú desplegable de gestión de usuarios y aplicar permisos por acción
   const userBadge = document.getElementById('user-profile-badge');
   const userChevron = document.getElementById('user-badge-chevron');
   const menuEditUsers = document.getElementById('menu-item-edit-users');
   const menuBlockUsers = document.getElementById('menu-item-block-users');
-  const isSuper = isAdmin && isMainAdmin(currentUser);
+  const canManageUsers = isAdmin && (isMainAdmin(currentUser) || hasUserPermission('manage_users', currentUser));
 
   if (userBadge) {
     userBadge.classList.toggle('clickable-badge', isAdmin);
@@ -599,10 +654,10 @@ function updateRoleButtonsUI() {
     userChevron.style.display = isAdmin ? 'inline-block' : 'none';
   }
   if (menuEditUsers) {
-    menuEditUsers.style.display = isSuper ? 'flex' : 'none';
+    menuEditUsers.style.display = canManageUsers ? 'flex' : 'none';
   }
   if (menuBlockUsers) {
-    menuBlockUsers.style.display = isSuper ? 'flex' : 'none';
+    menuBlockUsers.style.display = canManageUsers ? 'flex' : 'none';
   }
   if (!isAdmin) {
     closeUserDropdownMenu();
@@ -1398,23 +1453,101 @@ function openTicketModal(ticketId) {
 
   const adminBox = document.getElementById('mdl-admin-controls');
   const btnDelete = document.getElementById('btn-delete-ticket');
+
+  adminBox.style.display = isAdmin ? 'block' : 'none';
+  btnDelete.style.display = isAdmin && hasUserPermission('delete_tickets', currentUser) ? 'inline-flex' : 'none';
+
+  applyModalLockAndCommentState(ticket);
+  renderModalComments(ticket);
+
+  document.getElementById('modal-ticket-detail').classList.add('active');
+  refreshIcons();
+}
+
+function applyModalLockAndCommentState(ticket) {
+  if (!ticket) return;
+  const isAdmin = Boolean(currentUser && currentUser.activeViewRole === 'admin');
+  const isSuper = isMainAdmin(currentUser);
+  const isFinalized = ticket.status === 'Resuelto' || ticket.status === 'Cerrado';
+
+  // 1. Controlar caja de comentarios para Tiendas y Técnicos cuando el ticket está Resuelto / Cerrado
+  const commentRow = document.getElementById('mdl-comment-input-row');
+  const commentInput = document.getElementById('mdl-new-comment');
+  const closedNotice = document.getElementById('mdl-comment-closed-notice');
+  const closedText = document.getElementById('mdl-comment-closed-text');
+
+  if (isFinalized && !isSuper) {
+    if (commentRow) commentRow.style.display = 'none';
+    if (commentInput) commentInput.disabled = true;
+    if (closedText) {
+      closedText.textContent = isAdmin
+        ? `Este ticket ya fue marcado como ${ticket.status}. Solo el Administrador General (Maynor Cuyuche) puede reabrirlo o agregar comentarios.`
+        : `Este ticket ya fue finalizado (${ticket.status}) y cerrado para nuevos comentarios. Si necesitas asistencia adicional, crea un nuevo ticket o solicita su reapertura al Administrador General.`;
+    }
+    if (closedNotice) closedNotice.style.display = 'flex';
+  } else {
+    if (commentRow) commentRow.style.display = 'flex';
+    if (commentInput) commentInput.disabled = false;
+    if (closedNotice) closedNotice.style.display = 'none';
+  }
+
+  // 2. Controlar botones y campos del Panel de Soporte IT
   const btnModalClaim = document.getElementById('btn-modal-claim-ticket');
   const btnModalRelease = document.getElementById('btn-modal-release-ticket');
+  const btnModalReopen = document.getElementById('btn-modal-reopen-ticket');
   const lockedBanner = document.getElementById('mdl-locked-banner');
   const btnSaveAdmin = document.getElementById('btn-save-admin-changes');
 
-  adminBox.style.display = isAdmin ? 'block' : 'none';
-  btnDelete.style.display = isAdmin && isMainAdmin(currentUser) ? 'inline-flex' : 'none';
-  const isTicketActive = isAdmin && ticket.status !== 'Resuelto' && ticket.status !== 'Cerrado';
+  const statusSel = document.getElementById('mdl-status-select');
+  const techSel = document.getElementById('mdl-tech-select');
+  const prioSel = document.getElementById('mdl-prio-select');
+  const notesInp = document.getElementById('mdl-resolution-notes');
+
+  if (statusSel) statusSel.value = ticket.status;
+  if (techSel) techSel.value = ticket.assignedTechId || '';
+  if (prioSel) prioSel.value = ticket.priority;
+  if (notesInp) notesInp.value = ticket.resolutionNotes || '';
+
+  const canAttend = isAdmin && hasUserPermission('attend_tickets', currentUser);
+  const canChangePrio = isAdmin && hasUserPermission('change_priority', currentUser);
+
+  if (isFinalized) {
+    if (btnModalClaim) btnModalClaim.style.display = 'none';
+    if (btnModalRelease) btnModalRelease.style.display = 'none';
+    if (btnModalReopen) btnModalReopen.style.display = isSuper ? 'inline-flex' : 'none';
+
+    if (!isSuper) {
+      if (lockedBanner) {
+        lockedBanner.innerHTML = `<i data-lucide="lock" style="width: 14px; height: 14px;"></i> Ticket ${ticket.status} — Solo el Administrador General puede reabrirlo`;
+        lockedBanner.style.display = 'inline-flex';
+      }
+      if (statusSel) statusSel.disabled = true;
+      if (techSel) techSel.disabled = true;
+      if (prioSel) prioSel.disabled = true;
+      if (notesInp) notesInp.disabled = true;
+      if (btnSaveAdmin) btnSaveAdmin.style.display = 'none';
+    } else {
+      if (lockedBanner) lockedBanner.style.display = 'none';
+      if (statusSel) statusSel.disabled = false;
+      if (techSel) techSel.disabled = false;
+      if (prioSel) prioSel.disabled = false;
+      if (notesInp) notesInp.disabled = false;
+      if (btnSaveAdmin) btnSaveAdmin.style.display = 'inline-flex';
+    }
+    return;
+  }
+
+  // Si el ticket está activo (Abierto, En Proceso, En Espera)
+  if (btnModalReopen) btnModalReopen.style.display = 'none';
   const isUnassigned = !ticket.assignedTechId;
   const isOwnedByMe = Boolean(currentUser && ticket.assignedTechId === currentUser.id);
-  const isLockedByOther = Boolean(isTicketActive && ticket.assignedTechId && !isOwnedByMe);
+  const isLockedByOther = Boolean(canAttend && ticket.assignedTechId && !isOwnedByMe);
 
   if (btnModalClaim) {
-    btnModalClaim.style.display = isTicketActive && isUnassigned ? 'inline-flex' : 'none';
+    btnModalClaim.style.display = canAttend && isUnassigned ? 'inline-flex' : 'none';
   }
   if (btnModalRelease) {
-    btnModalRelease.style.display = isTicketActive && isOwnedByMe ? 'inline-flex' : 'none';
+    btnModalRelease.style.display = canAttend && isOwnedByMe ? 'inline-flex' : 'none';
   }
   if (lockedBanner) {
     if (isLockedByOther) {
@@ -1425,26 +1558,52 @@ function openTicketModal(ticketId) {
     }
   }
 
-  const statusSel = document.getElementById('mdl-status-select');
-  const techSel = document.getElementById('mdl-tech-select');
-  const prioSel = document.getElementById('mdl-prio-select');
-  const notesInp = document.getElementById('mdl-resolution-notes');
+  if (statusSel) statusSel.disabled = isLockedByOther || !canAttend;
+  if (techSel) techSel.disabled = isLockedByOther || !canAttend;
+  if (prioSel) prioSel.disabled = isLockedByOther || !canChangePrio;
+  if (notesInp) notesInp.disabled = isLockedByOther || !canAttend;
+  if (btnSaveAdmin) btnSaveAdmin.style.display = isLockedByOther || !canAttend ? 'none' : 'inline-flex';
+}
 
-  if (statusSel) statusSel.disabled = isLockedByOther;
-  if (techSel) techSel.disabled = isLockedByOther;
-  if (prioSel) prioSel.disabled = isLockedByOther;
-  if (notesInp) notesInp.disabled = isLockedByOther;
-  if (btnSaveAdmin) btnSaveAdmin.style.display = isLockedByOther ? 'none' : 'inline-flex';
+async function reopenTicketByMainAdmin(ticketId) {
+  if (!ticketId) return;
+  if (!isMainAdmin(currentUser)) {
+    showToast('Solo el Administrador General (Maynor Cuyuche) puede reabrir un ticket finalizado', 'error');
+    return;
+  }
 
-  document.getElementById('mdl-status-select').value = ticket.status;
-  document.getElementById('mdl-tech-select').value = ticket.assignedTechId || '';
-  document.getElementById('mdl-prio-select').value = ticket.priority;
-  document.getElementById('mdl-resolution-notes').value = ticket.resolutionNotes || '';
+  const tickets = TicketStorage.getTickets();
+  const idx = tickets.findIndex(t => t.id === ticketId);
+  if (idx === -1) return;
 
-  renderModalComments(ticket);
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const dateStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
-  document.getElementById('modal-ticket-detail').classList.add('active');
-  refreshIcons();
+  tickets[idx].status = 'En Proceso';
+  if (!tickets[idx].assignedTechId) {
+    tickets[idx].assignedTechId = currentUser.id;
+    tickets[idx].assignedTechName = currentUser.name;
+  }
+
+  if (!Array.isArray(tickets[idx].comments)) tickets[idx].comments = [];
+  tickets[idx].comments.push({
+    author: currentUser.name,
+    role: 'Soporte IT',
+    date: dateStr,
+    text: `🔓 Ticket reabierto por el Administrador General (${currentUser.name}) — Estado: En Proceso.`
+  });
+
+  TicketStorage.saveTickets(tickets);
+  await TicketStorage.syncTicketToBackend(tickets[idx]);
+  updateDbStatusBadge();
+
+  renderKPIs();
+  renderTicketsView();
+  if (activeModalTicketId === ticketId) {
+    openTicketModal(ticketId);
+  }
+  showToast(`Ticket ${tickets[idx].code} reabierto y puesto En Proceso`);
 }
 
 function closeTicketModal() {
@@ -1469,21 +1628,83 @@ function closeUserDropdownMenu() {
   if (menu) menu.classList.remove('open');
 }
 
+function setFormPermissionCheckboxes(permsObj, canEditPerms = true) {
+  ALL_PERMISSION_KEYS.forEach(key => {
+    const chk = document.getElementById(`perm-${key}`);
+    if (chk) {
+      chk.checked = Boolean(permsObj && permsObj[key]);
+      chk.disabled = !canEditPerms;
+    }
+  });
+  updatePermissionsSummaryBadge();
+}
+
+function getFormPermissionCheckboxes() {
+  const perms = {};
+  ALL_PERMISSION_KEYS.forEach(key => {
+    const chk = document.getElementById(`perm-${key}`);
+    perms[key] = chk ? Boolean(chk.checked) : false;
+  });
+  return perms;
+}
+
+function updatePermissionsSummaryBadge() {
+  const badge = document.getElementById('nu-permissions-summary-badge');
+  if (!badge) return;
+  const perms = getFormPermissionCheckboxes();
+  const activeCount = ALL_PERMISSION_KEYS.filter(k => perms[k]).length;
+  badge.textContent = `${activeCount} de ${ALL_PERMISSION_KEYS.length} acciones activas`;
+}
+
+function handleNewUserRoleChange() {
+  const roleSel = document.getElementById('nu-role');
+  const subRole = roleSel ? roleSel.value : 'solicitante';
+  const defaultPerms = getDefaultPermissionsForSubRole(subRole);
+  const canCustomize = isMainAdmin(currentUser);
+  setFormPermissionCheckboxes(defaultPerms, canCustomize);
+  handleNewUserCountryChange();
+}
+
+function configureRoleSelectAccess(selectedSubRole = 'solicitante') {
+  const roleSel = document.getElementById('nu-role');
+  const noteEl = document.getElementById('nu-permissions-note');
+  const isSuper = isMainAdmin(currentUser);
+
+  if (roleSel) {
+    Array.from(roleSel.options).forEach(opt => {
+      if (!isSuper && opt.value !== 'solicitante') {
+        opt.disabled = true;
+      } else {
+        opt.disabled = false;
+      }
+    });
+    roleSel.value = isSuper ? selectedSubRole : 'solicitante';
+    roleSel.disabled = !isSuper;
+  }
+
+  if (noteEl) {
+    noteEl.textContent = isSuper
+      ? 'Como Administrador General puedes elegir el rol y marcar o desmarcar qué acciones puede realizar este usuario en el sistema.'
+      : 'Solo el Administrador General (Maynor Cuyuche) puede asignar roles de Soporte IT / Admin o personalizar permisos.';
+  }
+}
+
 function openNewUserModal() {
   const modal = document.getElementById('modal-new-user');
   if (!modal) return;
   const titleEl = document.getElementById('modal-user-form-title');
-  if (titleEl) titleEl.textContent = 'Agregar Nuevo Usuario';
+  if (titleEl) titleEl.textContent = 'Agregar Nuevo Usuario y Configurar Rol';
   const editIdInp = document.getElementById('nu-edit-id');
   if (editIdInp) editIdInp.value = '';
-  const roleSel = document.getElementById('nu-role');
-  if (roleSel) roleSel.value = 'solicitante';
   document.getElementById('nu-name').value = '';
   document.getElementById('nu-email').value = '';
   document.getElementById('nu-phone').value = '';
   const pinInp = document.getElementById('nu-pin');
   if (pinInp) pinInp.value = '1';
   document.getElementById('nu-country').value = 'Guatemala';
+
+  configureRoleSelectAccess('solicitante');
+  setFormPermissionCheckboxes(getDefaultPermissionsForSubRole('solicitante'), isMainAdmin(currentUser));
   handleNewUserCountryChange();
   modal.classList.add('active');
   refreshIcons();
@@ -1498,13 +1719,13 @@ function openEditUserModal(userId) {
   if (!modal) return;
 
   const titleEl = document.getElementById('modal-user-form-title');
-  if (titleEl) titleEl.textContent = `Modificar Usuario: ${user.name}`;
+  if (titleEl) titleEl.textContent = `Modificar Usuario y Permisos: ${user.name}`;
 
   const editIdInp = document.getElementById('nu-edit-id');
   if (editIdInp) editIdInp.value = user.id;
 
-  const roleSel = document.getElementById('nu-role');
-  if (roleSel) roleSel.value = user.role || 'solicitante';
+  const userSubRole = getUserSubRole(user);
+  configureRoleSelectAccess(userSubRole);
 
   document.getElementById('nu-name').value = user.name || '';
   document.getElementById('nu-country').value = user.country || 'Guatemala';
@@ -1513,6 +1734,9 @@ function openEditUserModal(userId) {
   document.getElementById('nu-phone').value = user.phone || '';
   const pinInp = document.getElementById('nu-pin');
   if (pinInp) pinInp.value = user.pin || '1';
+
+  const effectivePerms = getUserEffectivePermissions(user);
+  setFormPermissionCheckboxes(effectivePerms, isMainAdmin(currentUser));
 
   modal.classList.add('active');
   refreshIcons();
@@ -1530,40 +1754,47 @@ function handleNewUserCountryChange(preferredBranch = null) {
   if (!countrySelect || !branchSelect) return;
 
   const selectedCountry = countrySelect.value;
-  const selectedRole = roleSelect ? roleSelect.value : 'solicitante';
+  const selectedSubRole = roleSelect ? roleSelect.value : 'solicitante';
+  const isAdminRole = selectedSubRole === 'soporte_it' || selectedSubRole === 'admin_general' || selectedSubRole === 'admin';
 
-  if (selectedRole === 'admin') {
-    const adminBranches = ['Sede Central IT', ...GUATEMALA_BRANCHES];
+  const baseGtBranches =
+    typeof GUATEMALA_BRANCHES !== 'undefined'
+      ? GUATEMALA_BRANCHES
+      : [
+          'Mundi Trofeos',
+          'Premia Zona 13',
+          'TRX Coban',
+          'TRX Peten',
+          'TRX Puertos Barrios',
+          'TRX Chiquimula',
+          'TRX Jutiapa',
+          'TRX Zona 3',
+          'TRX San Juan',
+          'TRX San Marcos',
+          'TRX Chimaltenango',
+          'TRX Escuintla',
+          'TRX Huehuetenango',
+          'TRX Mazatenango',
+          'TRX Villa Nueva',
+          'TRX Xela'
+        ];
+
+  if (isAdminRole) {
+    const adminBranches = ['Sede Central IT', ...baseGtBranches.filter(b => b !== 'Sede Central IT')];
     branchSelect.innerHTML = adminBranches
       .map(b => `<option value="${b}">${b}</option>`)
       .join('');
+    branchSelect.value = 'Sede Central IT';
   } else if (selectedCountry === 'Guatemala') {
-    const gtBranches =
-      typeof GUATEMALA_BRANCHES !== 'undefined'
-        ? GUATEMALA_BRANCHES
-        : [
-            'Mundi Trofeos',
-            'Premia Zona 13',
-            'TRX Coban',
-            'TRX Peten',
-            'TRX Puertos Barrios',
-            'TRX Chiquimula',
-            'TRX Jutiapa',
-            'TRX Zona 3',
-            'TRX San Juan',
-            'TRX San Marcos',
-            'TRX Chimaltenango',
-            'TRX Escuintla',
-            'TRX Huehuetenango',
-            'TRX Mazatenango',
-            'TRX Villa Nueva',
-            'TRX Xela'
-          ];
-    branchSelect.innerHTML = gtBranches
+    const gtBranchesWithIT = [...baseGtBranches.filter(b => b !== 'Sede Central IT'), 'Sede Central IT'];
+    branchSelect.innerHTML = gtBranchesWithIT
       .map(b => `<option value="${b}">${b}</option>`)
       .join('');
   } else {
-    branchSelect.innerHTML = `<option value="${selectedCountry}">${selectedCountry}</option>`;
+    branchSelect.innerHTML = `
+      <option value="${selectedCountry}">${selectedCountry}</option>
+      <option value="Sede Central IT">Sede Central IT</option>
+    `;
   }
 
   if (preferredBranch) {
@@ -1579,12 +1810,16 @@ async function handleCreateUserSubmit(e) {
   e.preventDefault();
   const editId = (document.getElementById('nu-edit-id')?.value || '').trim();
   const name = document.getElementById('nu-name').value.trim();
-  const role = document.getElementById('nu-role')?.value || 'solicitante';
+  const selectedSubRole = document.getElementById('nu-role')?.value || 'solicitante';
+  const isSuper = isMainAdmin(currentUser);
+  const subRole = isSuper ? selectedSubRole : 'solicitante';
+  const role = subRole === 'soporte_it' || subRole === 'admin_general' ? 'admin' : 'solicitante';
   const country = document.getElementById('nu-country').value;
   const branch = document.getElementById('nu-branch').value;
   const email = document.getElementById('nu-email').value.trim() || `${branch.toLowerCase().replace(/\s+/g, '')}@tiendastrofex.com`;
   const phone = document.getElementById('nu-phone').value.trim() || '';
   const pin = (document.getElementById('nu-pin')?.value || '1').trim() || '1';
+  const permissions = isSuper ? getFormPermissionCheckboxes() : getDefaultPermissionsForSubRole('solicitante');
 
   if (!name || !country || !branch) return;
 
@@ -1598,12 +1833,14 @@ async function handleCreateUserSubmit(e) {
       id: editId,
       name,
       role,
+      subRole,
       branch,
       country,
       email,
       phone,
       pin,
-      blocked: prevBlocked
+      blocked: prevBlocked,
+      permissions
     };
     if (idx !== -1) {
       users[idx] = savedUser;
@@ -1615,12 +1852,14 @@ async function handleCreateUserSubmit(e) {
       id: (role === 'admin' ? 't_' : 'u_') + Date.now(),
       name,
       role,
+      subRole,
       branch,
       country,
       email,
       phone,
       pin,
-      blocked: false
+      blocked: false,
+      permissions
     };
     users.push(savedUser);
   }
@@ -1633,12 +1872,14 @@ async function handleCreateUserSubmit(e) {
     localStorage.setItem(TICKET_STORAGE_KEYS.SESSION, JSON.stringify(currentUser));
     document.getElementById('user-display-name').textContent = currentUser.name;
     document.getElementById('user-avatar-text').textContent = currentUser.name.charAt(0).toUpperCase();
+    updateRoleButtonsUI();
   }
 
   initCategoriesSelects();
   populateLoginUsers('solicitante');
+  populateAdminDatalist();
   closeNewUserModal();
-  showToast(editId ? `Usuario ${name} actualizado correctamente` : `Usuario ${name} (${branch} - ${country}) registrado`);
+  showToast(editId ? `Usuario ${name} y sus permisos actualizados` : `Usuario ${name} (${branch}) registrado con éxito`);
 }
 
 let currentManageUsersMode = 'edit'; // 'edit' | 'block'
@@ -1699,14 +1940,24 @@ function renderManageUsersTable() {
 
   tbody.innerHTML = users
     .map(u => {
-      const isUserAdmin = u.role === 'admin';
+      const subRole = getUserSubRole(u);
       const isBlocked = Boolean(u.blocked);
-      const roleBadge = isUserAdmin
-        ? `<span class="badge badge-status-proceso">Soporte IT / Admin</span>`
-        : `<span class="badge badge-status-abierto">Tienda / Sucursal</span>`;
+      const roleBadge =
+        subRole === 'admin_general'
+          ? `<span class="badge badge-priority-alta" style="background: #eef2ff; color: #4338ca; border-color: #c7d2fe;">Administrador General</span>`
+          : subRole === 'soporte_it'
+            ? `<span class="badge badge-status-proceso">Soporte Técnico IT</span>`
+            : `<span class="badge badge-status-abierto">Tienda / Sucursal</span>`;
       const blockedBadge = isBlocked
         ? ` <span class="badge badge-priority-critica" style="margin-left: 4px;">Bloqueado</span>`
         : '';
+
+      const effectivePerms = getUserEffectivePermissions(u);
+      const activePermNames = ALL_PERMISSION_KEYS.filter(k => effectivePerms[k]).map(k => PERMISSION_SHORT_LABELS[k]);
+      const permsSummaryHtml =
+        activePermNames.length > 0
+          ? `<div style="font-size: 10.5px; color: var(--text-secondary); margin-top: 4px; max-width: 260px; line-height: 1.35;">${activePermNames.join(' · ')}</div>`
+          : `<div style="font-size: 10.5px; color: var(--text-muted); margin-top: 4px;">Sin acciones asignadas</div>`;
 
       const actionsHtml =
         currentManageUsersMode === 'edit'
@@ -1734,7 +1985,10 @@ function renderManageUsersTable() {
             <div style="font-weight: 700; font-size: 12.5px;">${u.branch}</div>
             <div style="font-size: 11px; color: var(--text-secondary);">${u.country}</div>
           </td>
-          <td>${roleBadge}</td>
+          <td>
+            ${roleBadge}
+            ${permsSummaryHtml}
+          </td>
           <td><code style="background: var(--bg-card-subtle); padding: 3px 8px; border-radius: 6px; font-weight: 700;">${u.pin || '1'}</code></td>
           <td style="text-align: right; white-space: nowrap;">
             ${actionsHtml}
@@ -1960,6 +2214,12 @@ async function addTicketComment() {
   const idx = tickets.findIndex(t => t.id === activeModalTicketId);
   if (idx === -1) return;
 
+  const isFinalized = tickets[idx].status === 'Resuelto' || tickets[idx].status === 'Cerrado';
+  if (isFinalized && !isMainAdmin(currentUser)) {
+    showToast('Este ticket ya fue finalizado y cerrado para nuevos comentarios. Solo el Administrador General puede reabrirlo.', 'error');
+    return;
+  }
+
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
   const dateStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
@@ -1986,6 +2246,12 @@ async function saveTicketAdminChanges() {
   const tickets = TicketStorage.getTickets();
   const idx = tickets.findIndex(t => t.id === activeModalTicketId);
   if (idx === -1) return;
+
+  const isFinalized = tickets[idx].status === 'Resuelto' || tickets[idx].status === 'Cerrado';
+  if (isFinalized && !isMainAdmin(currentUser)) {
+    showToast('Este ticket ya fue finalizado. Solo el Administrador General (Maynor Cuyuche) puede reabrirlo o modificarlo.', 'error');
+    return;
+  }
 
   if (
     tickets[idx].assignedTechId &&

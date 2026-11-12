@@ -37,9 +37,11 @@ try {
             $c['slaHours'] = (int) $c['slaHours'];
         }
 
-        $userRows = $pdo->query("SELECT id, nombre AS name, rol AS role, sucursal AS branch, pais AS country, email, telefono AS phone, pin, bloqueado AS blocked FROM usuarios ORDER BY id ASC")->fetchAll();
+        $userRows = $pdo->query("SELECT id, nombre AS name, rol AS role, subrol AS subRole, sucursal AS branch, pais AS country, email, telefono AS phone, pin, bloqueado AS blocked, permisos_json FROM usuarios ORDER BY id ASC")->fetchAll();
         foreach ($userRows as &$u) {
             $u['blocked'] = !empty($u['blocked']);
+            $u['permissions'] = !empty($u['permisos_json']) ? json_decode($u['permisos_json'], true) : null;
+            unset($u['permisos_json']);
         }
 
         $ticketRows = $pdo->query("SELECT * FROM tickets ORDER BY fecha_creacion DESC")->fetchAll();
@@ -157,28 +159,32 @@ try {
 
         if ($action === 'save_user') {
             $stmt = $pdo->prepare("
-                INSERT INTO usuarios (id, nombre, rol, sucursal, pais, email, telefono, pin, bloqueado)
-                VALUES (:id, :nombre, :rol, :sucursal, :pais, :email, :telefono, :pin, :bloqueado)
+                INSERT INTO usuarios (id, nombre, rol, subrol, sucursal, pais, email, telefono, pin, bloqueado, permisos_json)
+                VALUES (:id, :nombre, :rol, :subrol, :sucursal, :pais, :email, :telefono, :pin, :bloqueado, :permisos_json)
                 ON DUPLICATE KEY UPDATE
                     nombre = VALUES(nombre),
                     rol = VALUES(rol),
+                    subrol = VALUES(subrol),
                     sucursal = VALUES(sucursal),
                     pais = VALUES(pais),
                     email = VALUES(email),
                     telefono = VALUES(telefono),
                     pin = VALUES(pin),
-                    bloqueado = VALUES(bloqueado)
+                    bloqueado = VALUES(bloqueado),
+                    permisos_json = VALUES(permisos_json)
             ");
             $stmt->execute([
                 ':id' => $input['id'],
                 ':nombre' => $input['name'],
                 ':rol' => $input['role'] ?? 'solicitante',
+                ':subrol' => $input['subRole'] ?? null,
                 ':sucursal' => $input['branch'],
                 ':pais' => $input['country'] ?? 'Guatemala',
                 ':email' => $input['email'] ?? '',
                 ':telefono' => $input['phone'] ?? '',
                 ':pin' => $input['pin'] ?? '1',
-                ':bloqueado' => !empty($input['blocked']) ? 1 : 0
+                ':bloqueado' => !empty($input['blocked']) ? 1 : 0,
+                ':permisos_json' => !empty($input['permissions']) ? json_encode($input['permissions'], JSON_UNESCAPED_UNICODE) : null
             ]);
 
             echo json_encode([
