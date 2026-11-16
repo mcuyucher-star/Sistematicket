@@ -2343,22 +2343,61 @@ async function downloadTicketPDF() {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
 
+  // Limpiar nombre del solicitante si trae la sucursal repetida entre paréntesis, ej. "Carlos Pérez (TRX Coban)" -> "Carlos Pérez"
+  const cleanPersonName = rawName => {
+    const raw = String(rawName || '').trim();
+    const cleaned = raw.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+    return cleaned || raw;
+  };
+
+  const displayRequesterName = cleanPersonName(ticket.requesterName);
   const comments = Array.isArray(ticket.comments) ? ticket.comments : [];
+  const lastActivityDate = comments.length > 0 ? comments[comments.length - 1].date : ticket.createdAtDisplay;
+  const isFinalized = ticket.status === 'Resuelto' || ticket.status === 'Cerrado';
+
+  // Limpiar texto duplicado de nota técnica en la bitácora (ya aparece en la sección de Gestión Técnica)
+  const formatCommentText = rawText => {
+    const txt = String(rawText || '').trim();
+    if (txt.startsWith('Actualización de soporte —') && txt.includes(' | Nota: ')) {
+      return txt.split(' | Nota: ')[0];
+    }
+    return txt;
+  };
+
   const commentsRowsHtml =
     comments.length === 0
       ? `<div style="padding: 8px 0; font-size: 12px; color: #64748b;">Sin comentarios registrados</div>`
       : comments
-          .map(
-            c => `
-        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 6px 0; border-bottom: 1px solid #f1f5f9;">
-          <div style="font-size: 12px; color: #334155; flex: 1;">
-            <strong style="color: #0f172a;">${escapeHtml(c.author)} (${escapeHtml(c.role)}):</strong> ${escapeHtml(c.text)}
+          .map(c => {
+            const cleanAuthor = cleanPersonName(c.author);
+            const isTech = (c.role || '').toLowerCase().includes('soporte') || (c.role || '').toLowerCase().includes('admin');
+            const roleLabel = isTech ? 'Soporte IT' : 'Solicitante';
+            return `
+        <div style="display: grid; grid-template-columns: 1.25fr 2.15fr 0.8fr; gap: 12px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; align-items: baseline;">
+          <div style="font-size: 11.5px; font-weight: 700; color: #0f172a;">
+            ${escapeHtml(cleanAuthor)}
+            <span style="display: inline-block; font-size: 9.5px; font-weight: 700; color: ${isTech ? '#3730a3' : '#475569'}; background: ${isTech ? '#eef2ff' : '#f1f5f9'}; padding: 1px 6px; border-radius: 4px; margin-left: 4px; text-transform: uppercase;">
+              ${escapeHtml(roleLabel)}
+            </span>
           </div>
-          <div style="font-size: 11.5px; font-weight: 700; color: #0f172a; white-space: nowrap;">${escapeHtml(c.date)}</div>
+          <div style="font-size: 11.5px; color: #334155; line-height: 1.4;">
+            ${escapeHtml(formatCommentText(c.text))}
+          </div>
+          <div style="font-size: 11px; font-weight: 700; color: #0f172a; text-align: right; white-space: nowrap;">
+            ${escapeHtml(c.date)}
+          </div>
         </div>
-      `
-          )
+      `;
+          })
           .join('');
+
+  const statusUpper = (ticket.status || 'ABIERTO').toUpperCase();
+  const statusAccentColor =
+    ticket.status === 'Resuelto' || ticket.status === 'Cerrado'
+      ? '#047857'
+      : ticket.status === 'En Proceso'
+        ? '#1d4ed8'
+        : '#0f172a';
 
   const evidenceHtml = ticket.attachmentBase64
     ? `
@@ -2399,24 +2438,29 @@ async function downloadTicketPDF() {
             GRUPO PREMIA · Generado ${todayStr}
           </div>
         </div>
-        <img src="logomundi.jpeg" alt="Grupo Premia" style="height: 46px; width: auto; object-fit: contain;" onerror="this.style.display='none'">
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+          <img src="logomundi.jpeg" alt="Grupo Premia" style="height: 44px; width: auto; object-fit: contain;" onerror="this.style.display='none'">
+          <span style="font-size: 10px; font-weight: 800; color: #0f172a; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.04em;">
+            FOLIO: ${escapeHtml(ticket.code)}
+          </span>
+        </div>
       </div>
 
-      <div style="border-bottom: 2px solid #0f172a; margin: 14px 0 14px 0;"></div>
+      <div style="border-bottom: 2px solid #0f172a; margin: 12px 0 14px 0;"></div>
 
       <!-- CUADRÍCULA DE DATOS GENERALES (FILA 1) -->
       <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 22px;">
         <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 7px;">
-          <div style="font-size: 9.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">SOLICITANTE</div>
-          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(ticket.requesterName)}</div>
+          <div style="font-size: 9.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">SOLICITANTE / ENCARGADO</div>
+          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(displayRequesterName)}</div>
         </div>
         <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 7px;">
           <div style="font-size: 9.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">SUCURSAL / PAÍS</div>
           <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(ticket.branch)} — ${escapeHtml(ticket.country)}</div>
         </div>
         <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 7px;">
-          <div style="font-size: 9.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">CÓDIGO DE TICKET</div>
-          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(ticket.code)}</div>
+          <div style="font-size: 9.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">FECHA DE REPORTE</div>
+          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(ticket.createdAtDisplay)}</div>
         </div>
       </div>
 
@@ -2431,8 +2475,8 @@ async function downloadTicketPDF() {
           <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(ticket.assetCode || 'No especificado')}</div>
         </div>
         <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 7px;">
-          <div style="font-size: 9.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">FECHA REPORTE</div>
-          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(ticket.createdAtDisplay)}</div>
+          <div style="font-size: 9.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">${isFinalized ? 'FECHA DE CIERRE / RESOLUCIÓN' : 'ÚLTIMA ACTUALIZACIÓN'}</div>
+          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(lastActivityDate)}</div>
         </div>
       </div>
 
@@ -2462,22 +2506,27 @@ async function downloadTicketPDF() {
         <div style="font-size: 12.5px; font-weight: 700; color: #0f172a; margin-bottom: 5px;">
           Gestión Técnica y Diagnóstico
         </div>
-        <div style="display: grid; grid-template-columns: 1.2fr 2.2fr 0.8fr; gap: 12px; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; font-size: 9.5px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em;">
+        <div style="display: grid; grid-template-columns: 1.25fr 2.15fr 0.8fr; gap: 12px; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; font-size: 9.5px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em;">
           <span>TÉCNICO RESPONSABLE</span>
           <span>NOTAS DE RESOLUCIÓN / DIAGNÓSTICO</span>
           <span style="text-align: right;">ESTADO</span>
         </div>
-        <div style="display: grid; grid-template-columns: 1.2fr 2.2fr 0.8fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid #f1f5f9; align-items: start;">
+        <div style="display: grid; grid-template-columns: 1.25fr 2.15fr 0.8fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid #f1f5f9; align-items: start;">
           <div style="font-size: 12px; font-weight: 700; color: #0f172a;">${escapeHtml(ticket.assignedTechName || 'Sin asignar')}</div>
           <div style="font-size: 12px; color: #334155; line-height: 1.4;">${escapeHtml(ticket.resolutionNotes || 'Sin notas técnicas registradas')}</div>
-          <div style="font-size: 12px; font-weight: 800; color: #0f172a; text-align: right;">${escapeHtml(ticket.status)}</div>
+          <div style="font-size: 12px; font-weight: 800; color: ${statusAccentColor}; text-align: right;">${escapeHtml(ticket.status)}</div>
         </div>
       </div>
 
-      <!-- SECCIÓN 3: BITÁCORA DE SEGUIMIENTO -->
+      <!-- SECCIÓN 3: BITÁCORA DE SEGUIMIENTO EN TABLA DE 3 COLUMNAS -->
       <div style="margin-top: 14px;">
-        <div style="font-size: 12.5px; font-weight: 700; color: #0f172a; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; margin-bottom: 4px;">
+        <div style="font-size: 12.5px; font-weight: 700; color: #0f172a; margin-bottom: 5px;">
           Bitácora de Seguimiento y Comentarios
+        </div>
+        <div style="display: grid; grid-template-columns: 1.25fr 2.15fr 0.8fr; gap: 12px; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; font-size: 9.5px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em;">
+          <span>USUARIO / PERFIL</span>
+          <span>MOVIMIENTO / DETALLE DE SEGUIMIENTO</span>
+          <span style="text-align: right;">FECHA Y HORA</span>
         </div>
         ${commentsRowsHtml}
       </div>
@@ -2486,28 +2535,30 @@ async function downloadTicketPDF() {
 
       <!-- BLOQUE INFERIOR DE CIERRE Y FIRMAS -->
       <div style="margin-top: 22px;">
-        <!-- RECUADRO RESUMEN FINAL (IDÉNTICO A TOTAL SOLICITADO) -->
-        <div style="border: 1.5px solid #0f172a; border-radius: 8px; padding: 13px 18px; display: flex; align-items: center; justify-content: space-between;">
+        <!-- RECUADRO RESUMEN FINAL EJECUTIVO -->
+        <div style="border: 1.8px solid #0f172a; border-radius: 8px; padding: 13px 18px; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
           <span style="font-size: 13.5px; font-weight: 800; color: #0f172a; letter-spacing: 0.04em; text-transform: uppercase;">
             ESTADO FINAL DEL TICKET
           </span>
-          <span style="font-size: 18px; font-weight: 800; color: #0f172a; font-family: 'Courier New', Courier, monospace; letter-spacing: 0.03em;">
-            ${escapeHtml((ticket.status || 'ABIERTO').toUpperCase())}
+          <span style="font-size: 17px; font-weight: 800; color: ${statusAccentColor}; letter-spacing: 0.03em;">
+            ● ${escapeHtml(statusUpper)}
           </span>
         </div>
 
         <!-- SUB-RESUMEN ALINEADO A LA DERECHA -->
         <div style="text-align: right; font-size: 10.5px; color: #334155; margin-top: 7px; font-weight: 500;">
-          Ticket: ${escapeHtml(ticket.code)} &nbsp;&nbsp;&nbsp; Gestión: ${escapeHtml(ticket.categoryName)} &nbsp;&nbsp;&nbsp; Sucursal: ${escapeHtml(ticket.branch)} &nbsp;&nbsp;&nbsp; Técnico IT: ${escapeHtml(ticket.assignedTechName || 'Sin asignar')}${isAdmin ? ` &nbsp;&nbsp;&nbsp; Prioridad: ${escapeHtml(ticket.priority)}` : ''}
+          Folio: <strong>${escapeHtml(ticket.code)}</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Gestión: <strong>${escapeHtml(ticket.categoryName)}</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Sucursal: <strong>${escapeHtml(ticket.branch)}</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Técnico IT: <strong>${escapeHtml(ticket.assignedTechName || 'Sin asignar')}</strong>${isAdmin ? ` &nbsp;&nbsp;·&nbsp;&nbsp; Prioridad: <strong>${escapeHtml(ticket.priority)}</strong>` : ''}
         </div>
 
-        <!-- FIRMAS DE CONFORMIDAD -->
+        <!-- FIRMAS DE CONFORMIDAD PERSONALIZADAS -->
         <div style="display: flex; justify-content: space-around; align-items: flex-end; margin-top: 48px; padding: 0 20px;">
-          <div style="width: 230px; border-top: 1.2px solid #0f172a; padding-top: 6px; text-align: center; font-size: 11px; font-weight: 700; color: #334155;">
-            Firma del solicitante
+          <div style="width: 245px; border-top: 1.3px solid #0f172a; padding-top: 6px; text-align: center;">
+            <div style="font-size: 11.5px; font-weight: 800; color: #0f172a;">${escapeHtml(displayRequesterName)}</div>
+            <div style="font-size: 10px; font-weight: 600; color: #64748b; margin-top: 1px;">Firma de conformidad (${escapeHtml(ticket.branch)})</div>
           </div>
-          <div style="width: 230px; border-top: 1.2px solid #0f172a; padding-top: 6px; text-align: center; font-size: 11px; font-weight: 700; color: #334155;">
-            Autorizado por (Soporte IT)
+          <div style="width: 245px; border-top: 1.3px solid #0f172a; padding-top: 6px; text-align: center;">
+            <div style="font-size: 11.5px; font-weight: 800; color: #0f172a;">${escapeHtml(ticket.assignedTechName || 'Soporte Técnico IT')}</div>
+            <div style="font-size: 10px; font-weight: 600; color: #64748b; margin-top: 1px;">Autorizado y atendido por (Soporte IT)</div>
           </div>
         </div>
 
@@ -2605,29 +2656,118 @@ async function downloadTicketPDF() {
 
 function exportTicketsCSV() {
   const tickets = getFilteredTickets();
-  const headers = ['Codigo', 'Fecha', 'Estado', 'Prioridad', 'Categoria', 'Asunto', 'Sucursal', 'Pais', 'Solicitante', 'Tecnico_Asignado'];
-  const rows = tickets.map(t => [
-    t.code,
-    t.createdAtDisplay,
-    t.status,
-    t.priority,
-    `"${(t.categoryName || '').replace(/"/g, '""')}"`,
-    `"${(t.title || '').replace(/"/g, '""')}"`,
-    `"${(t.branch || '').replace(/"/g, '""')}"`,
-    t.country,
-    `"${(t.requesterName || '').replace(/"/g, '""')}"`,
-    `"${(t.assignedTechName || '').replace(/"/g, '""')}"`
-  ]);
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const todayDisplay = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
-  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const escapeXml = str =>
+    String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  const rowsHtml = tickets
+    .map((t, index) => {
+      const rowBg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+      const statusBg =
+        t.status === 'Resuelto' || t.status === 'Cerrado'
+          ? '#dcfce7'
+          : t.status === 'En Proceso'
+            ? '#dbeafe'
+            : '#fef3c7';
+      const statusColor =
+        t.status === 'Resuelto' || t.status === 'Cerrado'
+          ? '#166534'
+          : t.status === 'En Proceso'
+            ? '#1e40af'
+            : '#92400e';
+
+      const prioColor =
+        t.priority === 'Crítica' || t.priority === 'Alta'
+          ? '#be123c'
+          : t.priority === 'Media'
+            ? '#b45309'
+            : '#334155';
+
+      return `
+        <tr style="background-color: ${rowBg};">
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: bold; color: #1e293b; text-align: center;">${escapeXml(t.code)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #334155; text-align: center;">${escapeXml(t.createdAtDisplay)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: bold; background-color: ${statusBg}; color: ${statusColor}; text-align: center;">${escapeXml(t.status)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: bold; color: ${prioColor}; text-align: center;">${escapeXml(t.priority)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #0f172a;">${escapeXml(t.categoryName)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #0f172a; font-weight: bold;">${escapeXml(t.title)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #0f172a;">${escapeXml(t.branch)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #334155; text-align: center;">${escapeXml(t.country)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #334155;">${escapeXml(t.requesterName)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #334155; text-align: center;">${escapeXml(t.assetCode || 'No especificado')}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: bold; color: #0f172a;">${escapeXml(t.assignedTechName || 'Sin asignar')}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #334155;">${escapeXml(t.resolutionNotes || 'Sin notas registradas')}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const excelHtml = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+      <!--[if gte mso 9]>
+      <xml>
+        <x:ExcelWorkbook>
+          <x:ExcelWorksheets>
+            <x:ExcelWorksheet>
+              <x:Name>Reporte de Tickets IT</x:Name>
+              <x:WorksheetOptions>
+                <x:DisplayGridlines/>
+              </x:WorksheetOptions>
+            </x:ExcelWorksheet>
+          </x:ExcelWorksheets>
+        </x:ExcelWorkbook>
+      </xml>
+      <![endif]-->
+    </head>
+    <body style="font-family: Arial, Calibri, sans-serif; font-size: 11pt;">
+      <table border="1" cellspacing="0" cellpadding="5" style="border-collapse: collapse; font-family: Calibri, Arial, sans-serif;">
+        <tr>
+          <td colspan="12" style="background-color: #0f172a; color: #ffffff; font-size: 14pt; font-weight: bold; padding: 10px 14px; border: 1px solid #0f172a;">
+            GRUPO PREMIA · MUNDI TROFEOS · TIENDAS TROFEX — Reporte General de Tickets de Soporte IT
+          </td>
+        </tr>
+        <tr>
+          <td colspan="12" style="background-color: #f1f5f9; color: #334155; font-size: 10pt; padding: 6px 14px; border: 1px solid #cbd5e1;">
+            Fecha de generación: <strong>${todayDisplay}</strong> &nbsp;|&nbsp; Total de tickets exportados: <strong>${tickets.length}</strong>
+          </td>
+        </tr>
+        <tr style="background-color: #1e293b; color: #ffffff; font-weight: bold; text-align: center;">
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Código</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Fecha Reporte</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Estado</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Prioridad</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Tipo de Gestión</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Asunto / Problema</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Sucursal</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">País</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Solicitante</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">AnyDesk / Área</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Técnico Asignado</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Notas de Resolución</th>
+        </tr>
+        ${rowsHtml}
+      </table>
+    </body>
+    </html>
+  `;
+
+  const blob = new Blob(['\uFEFF' + excelHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Reporte_Tickets_Soporte_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `Reporte_Tickets_GrupoPremia_${new Date().toISOString().slice(0, 10)}.xls`;
   a.click();
   URL.revokeObjectURL(url);
-  showToast('Reporte CSV exportado correctamente');
+  showToast('Reporte de Excel generado correctamente');
 }
 
 /* =========================================================================

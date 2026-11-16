@@ -345,7 +345,7 @@ $serverYear = date('Y');
                   <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> Actualizar
                 </button>
                 <button type="button" class="btn-secondary-custom" onclick="exportTicketsCSV()">
-                  <i data-lucide="download" style="width: 15px; height: 15px;"></i> Exportar CSV
+                  <i data-lucide="file-spreadsheet" style="width: 15px; height: 15px;"></i> Exportar Excel
                 </button>
               </div>
             </div>
