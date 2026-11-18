@@ -7,6 +7,7 @@
 let currentLoginRole = 'solicitante'; // 'solicitante' | 'admin'
 let currentUser = null;
 let currentAttachmentBase64 = null;
+let currentResolutionAttachmentBase64 = null;
 let activeModalTicketId = null;
 let currentViewMode = 'table'; // 'table' | 'kanban'
 let activeQuickTab = 'ALL'; // 'ALL' | 'OPEN' | 'PROGRESS' | 'CRITICAL' | 'RESOLVED'
@@ -14,12 +15,23 @@ let realtimeSyncTimer = null;
 let isRealtimeSyncRunning = false;
 let lastKnownTicketsSnapshot = null;
 
+// Variables para Alerta Sonora y Aviso en Pestaña del Navegador
+const BASE_DOCUMENT_TITLE = document.title || 'Mundi Trofeos · Tiendas Trofex · Premia - Sistema de Tickets';
+let isSoundAlertEnabled = localStorage.getItem('sistematickets_sound_enabled') !== 'false';
+let sharedAudioCtx = null;
+let tabTitleFlashTimer = null;
+let unreadTabAlertsCount = 0;
+let tabFlashState = false;
+let currentTabAlertLabel = 'Nuevo Ticket';
+
 document.addEventListener('DOMContentLoaded', async () => {
   // 1. Renderizar inmediatamente con datos disponibles para respuesta instantánea (Zero-latency UX)
   initCategoriesSelects();
   populateLoginUsers('solicitante');
   checkSavedSession();
   setupKeyboardShortcuts();
+  updateSoundAlertButtonUI();
+  setupTabAlertListeners();
   refreshIcons();
 
   // 2. Sincronizar en segundo plano con PHP + MySQL
@@ -46,6 +58,7 @@ function setupKeyboardShortcuts() {
       if (activeModalTicketId) closeTicketModal();
       closeNewUserModal();
       closeManageUsersModal();
+      closeManageCategoriesModal();
       closeStatsModal();
       closeUserDropdownMenu();
     }
@@ -130,9 +143,9 @@ function buildTicketsSnapshot(tickets) {
 function startRealtimeTicketSync() {
   if (realtimeSyncTimer) clearInterval(realtimeSyncTimer);
 
-  // Sincronización periódica cada 4 segundos con el servidor PHP + MySQL
+  // Sincronización periódica cada 4 segundos (incluso con la pestaña en segundo plano para disparar sonido y aviso en pestaña)
   realtimeSyncTimer = setInterval(() => {
-    if (!document.hidden && currentUser) {
+    if (currentUser) {
       pollRealtimeTicketUpdates();
     }
   }, 4000);
@@ -144,12 +157,148 @@ function startRealtimeTicketSync() {
     }
   });
 
-  // Sincronizar de inmediato al volver a la pestaña
+  // Sincronizar de inmediato al volver a la pestaña y limpiar parpadeo del título
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && currentUser) {
+      clearTabTitleNotification();
       pollRealtimeTicketUpdates();
     }
   });
+}
+
+function setupTabAlertListeners() {
+  const unlockAudioAndClearTab = () => {
+    if (!sharedAudioCtx && (window.AudioContext || window.webkitAudioContext)) {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        sharedAudioCtx = new AudioCtx();
+      } catch (e) {
+        // Ignorar si no está disponible
+      }
+    } else if (sharedAudioCtx && sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume().catch(() => {});
+    }
+    if (unreadTabAlertsCount > 0) {
+      clearTabTitleNotification();
+    }
+  };
+
+  window.addEventListener('focus', () => {
+    clearTabTitleNotification();
+  });
+  document.addEventListener('click', unlockAudioAndClearTab, { passive: true });
+  document.addEventListener('keydown', unlockAudioAndClearTab, { passive: true });
+}
+
+function updateSoundAlertButtonUI() {
+  const btn = document.getElementById('btn-sound-alert-toggle');
+  const txt = document.getElementById('text-sound-alert');
+  const icon = document.getElementById('icon-sound-alert');
+  if (!btn || !txt) return;
+
+  if (isSoundAlertEnabled) {
+    btn.style.background = '#ecfdf5';
+    btn.style.color = '#047857';
+    btn.style.borderColor = '#a7f3d0';
+    txt.textContent = 'Alerta Sonora';
+    if (icon) icon.setAttribute('data-lucide', 'bell-ring');
+  } else {
+    btn.style.background = '#f1f5f9';
+    btn.style.color = '#64748b';
+    btn.style.borderColor = '#cbd5e1';
+    txt.textContent = 'Silenciado';
+    if (icon) icon.setAttribute('data-lucide', 'bell-off');
+  }
+  refreshIcons();
+}
+
+function toggleSoundAlerts() {
+  isSoundAlertEnabled = !isSoundAlertEnabled;
+  localStorage.setItem('sistematickets_sound_enabled', isSoundAlertEnabled ? 'true' : 'false');
+  updateSoundAlertButtonUI();
+
+  if (isSoundAlertEnabled) {
+    playTicketAlertSound('new_ticket');
+    showToast('🔔 Alerta sonora activada (Sonido de prueba reproducido)');
+  } else {
+    showToast('🔕 Alerta sonora silenciada');
+  }
+}
+
+function playTicketAlertSound(alertType = 'new_ticket') {
+  if (!isSoundAlertEnabled) return;
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+
+  try {
+    if (!sharedAudioCtx) {
+      sharedAudioCtx = new AudioCtx();
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume();
+    }
+
+    const now = sharedAudioCtx.currentTime;
+    // Notas musicales: para nuevo ticket 3 tonos ascendentes (D5 -> F#5 -> A5); para actualización 2 tonos (E5 -> A5)
+    const notes =
+      alertType === 'new_ticket'
+        ? [
+            { freq: 587.33, start: 0, duration: 0.14 },
+            { freq: 739.99, start: 0.13, duration: 0.14 },
+            { freq: 880.0, start: 0.26, duration: 0.34 }
+          ]
+        : [
+            { freq: 659.25, start: 0, duration: 0.14 },
+            { freq: 880.0, start: 0.14, duration: 0.28 }
+          ];
+
+    notes.forEach(n => {
+      const osc = sharedAudioCtx.createOscillator();
+      const gain = sharedAudioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(n.freq, now + n.start);
+
+      gain.gain.setValueAtTime(0.001, now + n.start);
+      gain.gain.exponentialRampToValueAtTime(0.24, now + n.start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + n.start + n.duration);
+
+      osc.connect(gain);
+      gain.connect(sharedAudioCtx.destination);
+      osc.start(now + n.start);
+      osc.stop(now + n.start + n.duration + 0.02);
+    });
+  } catch (err) {
+    // Silencioso si el navegador aún no permite audio
+  }
+}
+
+function triggerTabTitleNotification(labelText = 'Nuevo Ticket') {
+  unreadTabAlertsCount += 1;
+  currentTabAlertLabel = labelText;
+
+  if (tabTitleFlashTimer) clearInterval(tabTitleFlashTimer);
+
+  const updateTitle = () => {
+    tabFlashState = !tabFlashState;
+    if (tabFlashState) {
+      document.title = `🔔 (${unreadTabAlertsCount}) ${currentTabAlertLabel} — Soporte IT`;
+    } else {
+      document.title = BASE_DOCUMENT_TITLE;
+    }
+  };
+
+  updateTitle();
+  tabTitleFlashTimer = setInterval(updateTitle, 1100);
+}
+
+function clearTabTitleNotification() {
+  unreadTabAlertsCount = 0;
+  tabFlashState = false;
+  if (tabTitleFlashTimer) {
+    clearInterval(tabTitleFlashTimer);
+    tabTitleFlashTimer = null;
+  }
+  document.title = BASE_DOCUMENT_TITLE;
 }
 
 async function pollRealtimeTicketUpdates() {
@@ -172,6 +321,8 @@ function handleDetectedRealtimeChanges(freshTickets) {
   const oldSnapshot = lastKnownTicketsSnapshot || {};
 
   let hasChanges = false;
+  let hasNewTicketAlert = false;
+  let shortTabLabel = 'Actualización';
   const notifications = [];
   const isAdmin = currentUser.activeViewRole === 'admin';
   const userBranch = (currentUser.branch || '').toLowerCase();
@@ -184,8 +335,12 @@ function handleDetectedRealtimeChanges(freshTickets) {
     if (!prev) {
       hasChanges = true;
       if (isAdmin) {
+        hasNewTicketAlert = true;
+        shortTabLabel = `¡NUEVO TICKET ${curr.code}!`;
         notifications.push(`🔔 Nuevo ticket recibido: ${curr.code} (${curr.branch})`);
       } else if ((curr.branch || '').toLowerCase() === userBranch) {
+        hasNewTicketAlert = true;
+        shortTabLabel = `Ticket ${curr.code}`;
         notifications.push(`🔔 Ticket registrado: ${curr.code} (${curr.status})`);
       }
       return;
@@ -203,14 +358,18 @@ function handleDetectedRealtimeChanges(freshTickets) {
 
       if (!isAdmin && belongsToStore) {
         if (statusChanged) {
+          shortTabLabel = `${curr.code}: ${curr.status}`;
           notifications.push(`🔔 Tu ticket ${curr.code} cambió de estado a: ${curr.status} (${curr.assignedTechName})`);
         } else if (techChanged) {
+          shortTabLabel = `${curr.code} en atención`;
           notifications.push(`👨‍💻 Ticket ${curr.code} asignado a: ${curr.assignedTechName}`);
         } else if (commentsChanged && curr.lastCommentRole === 'Soporte IT') {
+          shortTabLabel = `Mensaje en ${curr.code}`;
           notifications.push(`💬 Nuevo comentario de ${curr.lastCommentAuthor} en ticket ${curr.code}`);
         }
       } else if (isAdmin) {
         if (commentsChanged && curr.lastCommentRole !== 'Soporte IT') {
+          shortTabLabel = `Comentario en ${curr.code}`;
           notifications.push(`💬 ${curr.lastCommentAuthor} comentó en el ticket ${curr.code}`);
         }
       }
@@ -233,6 +392,8 @@ function handleDetectedRealtimeChanges(freshTickets) {
 
   if (notifications.length > 0) {
     showToast(notifications[0]);
+    playTicketAlertSound(hasNewTicketAlert ? 'new_ticket' : 'update');
+    triggerTabTitleNotification(shortTabLabel);
   }
 }
 
@@ -644,7 +805,9 @@ function updateRoleButtonsUI() {
   const userChevron = document.getElementById('user-badge-chevron');
   const menuEditUsers = document.getElementById('menu-item-edit-users');
   const menuBlockUsers = document.getElementById('menu-item-block-users');
-  const canManageUsers = isAdmin && (isMainAdmin(currentUser) || hasUserPermission('manage_users', currentUser));
+  const menuManageCategories = document.getElementById('menu-item-manage-categories');
+  const isSuper = isAdmin && isMainAdmin(currentUser);
+  const canManageUsers = isAdmin && (isSuper || hasUserPermission('manage_users', currentUser));
 
   if (userBadge) {
     userBadge.classList.toggle('clickable-badge', isAdmin);
@@ -652,6 +815,9 @@ function updateRoleButtonsUI() {
   }
   if (userChevron) {
     userChevron.style.display = isAdmin ? 'inline-block' : 'none';
+  }
+  if (menuManageCategories) {
+    menuManageCategories.style.display = isSuper ? 'flex' : 'none';
   }
   if (menuEditUsers) {
     menuEditUsers.style.display = canManageUsers ? 'flex' : 'none';
@@ -709,16 +875,18 @@ function updateRoleButtonsUI() {
     }
   }
 
-  // En vista Tienda ocultar selectores "Todos los Estados", "Toda Prioridad" y "Todas las Categorías"
+  // En vista Tienda ocultar selectores "Todos los Estados", "Toda Prioridad", "Todas las Categorías" y "Periodo"
   const filterSearch = document.getElementById('filter-search');
   const filterStatus = document.getElementById('filter-status');
   const filterPriority = document.getElementById('filter-priority');
   const filterCategory = document.getElementById('filter-category');
+  const filterPeriod = document.getElementById('filter-period');
   const thPriorityCol = document.getElementById('th-priority-col');
 
   if (filterStatus) filterStatus.style.display = isAdmin ? 'block' : 'none';
   if (filterPriority) filterPriority.style.display = isAdmin ? 'block' : 'none';
   if (filterCategory) filterCategory.style.display = isAdmin ? 'block' : 'none';
+  if (filterPeriod) filterPeriod.style.display = isAdmin ? 'block' : 'none';
   if (thPriorityCol) thPriorityCol.style.display = isAdmin ? 'table-cell' : 'none';
   if (filterSearch) {
     filterSearch.placeholder = isAdmin
@@ -729,6 +897,7 @@ function updateRoleButtonsUI() {
   if (!isAdmin) {
     if (filterPriority) filterPriority.value = 'ALL';
     if (filterCategory) filterCategory.value = 'ALL';
+    if (filterPeriod) filterPeriod.value = 'ALL';
     if (filterStatus && activeQuickTab !== 'OPEN') filterStatus.value = 'ALL';
     if (currentViewMode !== 'table') {
       currentViewMode = 'table';
@@ -808,6 +977,10 @@ function selectPriority(prio) {
 }
 
 function getAutomaticPriorityByCategory(categoryId) {
+  const catObj = TicketStorage.getCategories().find(c => c.id === categoryId);
+  if (catObj && catObj.priority) {
+    return catObj.priority;
+  }
   const autoMap = {
     'cat_imp': 'Baja',      // Impresoras -> Baja
     'cat_red': 'Media',     // Red -> Media
@@ -816,6 +989,182 @@ function getAutomaticPriorityByCategory(categoryId) {
     'cat_comp': 'Alta'      // Compras de Nuevos Equipos -> Alta
   };
   return autoMap[categoryId] || 'Media';
+}
+
+/* =========================================================================
+   2B. GESTIÓN DE CATEGORÍAS Y PRIORIDADES AUTOMÁTICAS (SOLO ADMIN GENERAL)
+   ========================================================================= */
+function openManageCategoriesModal() {
+  if (!isMainAdmin(currentUser)) {
+    showToast('Solo el Administrador General (Maynor Cuyuche) puede gestionar las categorías y prioridades', 'error');
+    return;
+  }
+  const modal = document.getElementById('modal-manage-categories');
+  if (!modal) return;
+  resetCategoryForm();
+  renderManageCategoriesTable();
+  modal.classList.add('active');
+  refreshIcons();
+}
+
+function closeManageCategoriesModal() {
+  const modal = document.getElementById('modal-manage-categories');
+  if (modal) modal.classList.remove('active');
+}
+
+function resetCategoryForm() {
+  const editId = document.getElementById('cat-edit-id');
+  const nameInp = document.getElementById('cat-input-name');
+  const prioSel = document.getElementById('cat-input-priority');
+  const slaInp = document.getElementById('cat-input-sla');
+  const heading = document.getElementById('cat-form-heading');
+  const cancelBtn = document.getElementById('btn-cat-cancel-edit');
+
+  if (editId) editId.value = '';
+  if (nameInp) nameInp.value = '';
+  if (prioSel) prioSel.value = 'Media';
+  if (slaInp) slaInp.value = '8';
+  if (heading) heading.textContent = '+ Agregar Nuevo Tipo de Gestión';
+  if (cancelBtn) cancelBtn.style.display = 'none';
+}
+
+function startEditCategory(catId) {
+  const cat = TicketStorage.getCategories().find(c => c.id === catId);
+  if (!cat) return;
+
+  const editId = document.getElementById('cat-edit-id');
+  const nameInp = document.getElementById('cat-input-name');
+  const prioSel = document.getElementById('cat-input-priority');
+  const slaInp = document.getElementById('cat-input-sla');
+  const heading = document.getElementById('cat-form-heading');
+  const cancelBtn = document.getElementById('btn-cat-cancel-edit');
+
+  if (editId) editId.value = cat.id;
+  if (nameInp) {
+    nameInp.value = cat.name;
+    nameInp.focus();
+  }
+  if (prioSel) prioSel.value = cat.priority || getAutomaticPriorityByCategory(cat.id);
+  if (slaInp) slaInp.value = cat.slaHours || 8;
+  if (heading) heading.textContent = `Modificar Tipo de Gestión: ${cat.name}`;
+  if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+}
+
+function renderManageCategoriesTable() {
+  const tbody = document.getElementById('manage-categories-tbody');
+  if (!tbody) return;
+
+  const categories = TicketStorage.getCategories();
+  if (categories.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 18px; color: var(--text-muted);">No hay categorías registradas.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = categories
+    .map(c => {
+      const prio = c.priority || getAutomaticPriorityByCategory(c.id);
+      return `
+        <tr>
+          <td>
+            <div style="font-weight: 800; color: var(--text-primary);">${c.name}</div>
+            <div style="font-size: 10.5px; color: var(--text-muted);">Código interno: ${c.id}</div>
+          </td>
+          <td>${getPriorityBadgeHTML(prio)}</td>
+          <td>
+            <span style="font-size: 12px; font-weight: 700; color: var(--text-secondary); background: #f1f5f9; padding: 3px 9px; border-radius: 6px;">
+              ${Number(c.slaHours) || 8} horas
+            </span>
+          </td>
+          <td style="text-align: right; white-space: nowrap;">
+            <button type="button" class="btn-secondary-custom" onclick="startEditCategory('${c.id}')" style="padding: 5px 10px; font-size: 11.5px; margin-right: 4px;">
+              <i data-lucide="edit-3" style="width: 13px; height: 13px;"></i> Modificar
+            </button>
+            <button type="button" class="btn-secondary-custom" onclick="handleDeleteCategory('${c.id}')" style="padding: 5px 10px; font-size: 11.5px; color: #e11d48; border-color: #fecdd3; background: #fff1f2;">
+              <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> Eliminar
+            </button>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  refreshIcons();
+}
+
+async function handleSaveCategorySubmit(e) {
+  e.preventDefault();
+  if (!isMainAdmin(currentUser)) return;
+
+  const editId = (document.getElementById('cat-edit-id')?.value || '').trim();
+  const name = (document.getElementById('cat-input-name')?.value || '').trim();
+  const priority = document.getElementById('cat-input-priority')?.value || 'Media';
+  const slaHours = Math.max(1, Number(document.getElementById('cat-input-sla')?.value) || 8);
+
+  if (!name) return;
+
+  const categories = TicketStorage.getCategories();
+  let savedCat;
+
+  if (editId) {
+    const idx = categories.findIndex(c => c.id === editId);
+    const prevIcon = idx !== -1 ? categories[idx].icon || 'tag' : 'tag';
+    savedCat = {
+      id: editId,
+      name,
+      priority,
+      slaHours,
+      icon: prevIcon
+    };
+    if (idx !== -1) {
+      categories[idx] = savedCat;
+    } else {
+      categories.push(savedCat);
+    }
+  } else {
+    savedCat = {
+      id: 'cat_' + Date.now(),
+      name,
+      priority,
+      slaHours,
+      icon: 'tag'
+    };
+    categories.push(savedCat);
+  }
+
+  TicketStorage.saveCategories(categories);
+  initCategoriesSelects();
+  resetCategoryForm();
+  renderManageCategoriesTable();
+  renderTicketsView();
+  showToast(
+    editId
+      ? `Categoría "${name}" actualizada (Prioridad automática: ${priority})`
+      : `Categoría "${name}" agregada (Prioridad automática: ${priority})`
+  );
+
+  TicketStorage.saveCategoryToBackend(savedCat);
+}
+
+async function handleDeleteCategory(catId) {
+  if (!isMainAdmin(currentUser)) return;
+  const categories = TicketStorage.getCategories();
+  if (categories.length <= 1) {
+    showToast('Debe existir al menos un Tipo de Gestión en el sistema', 'error');
+    return;
+  }
+  const target = categories.find(c => c.id === catId);
+  if (!target) return;
+
+  if (!confirm(`¿Seguro que deseas eliminar el Tipo de Gestión "${target.name}"?`)) return;
+
+  const updated = categories.filter(c => c.id !== catId);
+  TicketStorage.saveCategories(updated);
+  initCategoriesSelects();
+  resetCategoryForm();
+  renderManageCategoriesTable();
+  showToast(`Categoría "${target.name}" eliminada`);
+
+  TicketStorage.deleteCategoryFromBackend(catId);
 }
 
 function detectCategoryFromText(title, description) {
@@ -900,6 +1249,67 @@ function clearAttachment() {
   document.getElementById('tkt-attachment-preview-box').style.display = 'none';
 }
 
+function handleResolutionAttachmentPreview(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  if (file.size > MAX_IMAGE_SIZE_BYTES) {
+    showToast('La imagen supera el tamaño máximo permitido de 10 MB', 'error');
+    e.target.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function (evt) {
+    const rawDataUrl = evt.target.result;
+    const imgObj = new Image();
+    imgObj.onload = function () {
+      const maxDim = 1280;
+      let width = imgObj.width;
+      let height = imgObj.height;
+
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgObj, 0, 0, width, height);
+
+      currentResolutionAttachmentBase64 = canvas.toDataURL('image/jpeg', 0.82);
+      const box = document.getElementById('mdl-res-attachment-preview-box');
+      const img = document.getElementById('mdl-res-attachment-img');
+      if (img) img.src = currentResolutionAttachmentBase64;
+      if (box) box.style.display = 'block';
+    };
+    imgObj.onerror = function () {
+      currentResolutionAttachmentBase64 = rawDataUrl;
+      const box = document.getElementById('mdl-res-attachment-preview-box');
+      const img = document.getElementById('mdl-res-attachment-img');
+      if (img) img.src = currentResolutionAttachmentBase64;
+      if (box) box.style.display = 'block';
+    };
+    imgObj.src = rawDataUrl;
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearResolutionAttachment() {
+  currentResolutionAttachmentBase64 = null;
+  const input = document.getElementById('mdl-res-attachment-input');
+  const box = document.getElementById('mdl-res-attachment-preview-box');
+  if (input) input.value = '';
+  if (box) box.style.display = 'none';
+}
+
 /* =========================================================================
    3. CREATE NEW TICKET
    ========================================================================= */
@@ -969,8 +1379,7 @@ async function handleCreateTicket(e) {
 
   tickets.unshift(newTicket);
   TicketStorage.saveTickets(tickets);
-  const syncRes = await TicketStorage.syncTicketToBackend(newTicket);
-  updateDbStatusBadge();
+  lastKnownTicketsSnapshot = buildTicketsSnapshot(tickets);
 
   document.getElementById('tkt-title').value = '';
   document.getElementById('tkt-asset').value = '';
@@ -982,6 +1391,8 @@ async function handleCreateTicket(e) {
   renderKPIs();
   renderTicketsView();
   showToast(`Ticket ${code} registrado exitosamente`);
+
+  TicketStorage.syncTicketToBackend(newTicket).then(() => updateDbStatusBadge());
 }
 
 /* =========================================================================
@@ -1094,11 +1505,67 @@ function getSLABadgeHTML(ticket) {
   return `<span class="sla-pill ${sla.cssClass}">${sla.label}</span>`;
 }
 
+function parseTicketDateObject(ticket) {
+  if (!ticket) return null;
+  if (ticket.createdAtSql) {
+    const dt = new Date(String(ticket.createdAtSql).replace(' ', 'T'));
+    if (!isNaN(dt.getTime())) return dt;
+  }
+  if (ticket.createdAtDisplay) {
+    // Formato DD/MM/YYYY HH:MM
+    const parts = String(ticket.createdAtDisplay).trim().split(' ');
+    const dmy = (parts[0] || '').split('/');
+    if (dmy.length === 3) {
+      const hm = (parts[1] || '00:00').split(':');
+      const dt = new Date(
+        Number(dmy[2]),
+        Number(dmy[1]) - 1,
+        Number(dmy[0]),
+        Number(hm[0] || 0),
+        Number(hm[1] || 0)
+      );
+      if (!isNaN(dt.getTime())) return dt;
+    }
+  }
+  return null;
+}
+
+function matchesTicketPeriodFilter(ticket, periodKey) {
+  if (!periodKey || periodKey === 'ALL') return true;
+  const dt = parseTicketDateObject(ticket);
+  if (!dt) return true;
+
+  const now = new Date();
+  if (periodKey === 'TODAY') {
+    return (
+      dt.getFullYear() === now.getFullYear() &&
+      dt.getMonth() === now.getMonth() &&
+      dt.getDate() === now.getDate()
+    );
+  }
+  if (periodKey === 'LAST_7_DAYS') {
+    const diffMs = now.getTime() - dt.getTime();
+    return diffMs >= -3600000 && diffMs <= 7 * 24 * 3600 * 1000;
+  }
+  if (periodKey === 'THIS_MONTH') {
+    return dt.getFullYear() === now.getFullYear() && dt.getMonth() === now.getMonth();
+  }
+  if (periodKey === 'LAST_MONTH') {
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return (
+      dt.getFullYear() === lastMonthDate.getFullYear() &&
+      dt.getMonth() === lastMonthDate.getMonth()
+    );
+  }
+  return true;
+}
+
 function getFilteredTickets() {
   const search = (document.getElementById('filter-search')?.value || '').toLowerCase().trim();
   const statusFilter = document.getElementById('filter-status')?.value || 'ALL';
   const prioFilter = document.getElementById('filter-priority')?.value || 'ALL';
   const catFilter = document.getElementById('filter-category')?.value || 'ALL';
+  const periodFilter = document.getElementById('filter-period')?.value || 'ALL';
 
   const allTickets = getVisibleTicketsByRole();
 
@@ -1117,6 +1584,7 @@ function getFilteredTickets() {
     if (statusFilter !== 'ALL' && t.status !== statusFilter) return false;
     if (prioFilter !== 'ALL' && t.priority !== prioFilter) return false;
     if (catFilter !== 'ALL' && t.categoryId !== catFilter) return false;
+    if (!matchesTicketPeriodFilter(t, periodFilter)) return false;
 
     if (search) {
       const hay = `${t.code} ${t.title} ${t.branch} ${t.requesterName} ${t.categoryName} ${t.country} ${t.assignedTechName}`.toLowerCase();
@@ -1149,6 +1617,43 @@ function renderTicketsView() {
   lastKnownTicketsSnapshot = buildTicketsSnapshot(TicketStorage.getTickets());
 }
 
+function hasValidAnyDeskValue(ticket) {
+  if (!ticket) return false;
+  const val = String(ticket.assetCode || '').trim();
+  if (!val || val.toLowerCase() === 'no especificado' || val.toLowerCase() === 'no especificada' || val.toLowerCase() === 'sin serie') {
+    return false;
+  }
+  return true;
+}
+
+async function copyAnyDeskToClipboard(ticketId, e) {
+  if (e) e.stopPropagation();
+  const ticket = TicketStorage.getTickets().find(t => t.id === ticketId);
+  if (!ticket || !hasValidAnyDeskValue(ticket)) return;
+
+  const textToCopy = String(ticket.assetCode).trim();
+  const isMundi = (ticket.branch || '').toLowerCase() === 'mundi trofeos';
+  const label = isMundi ? 'Área' : 'AnyDesk';
+
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(textToCopy);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = textToCopy;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    showToast(`📋 ${label} copiado al portapapeles: ${textToCopy}`);
+  } catch (err) {
+    showToast(`No se pudo copiar automáticamente: ${textToCopy}`, 'error');
+  }
+}
+
 function renderTicketsTable() {
   const tbody = document.getElementById('tickets-tbody');
   if (!tbody) return;
@@ -1177,8 +1682,15 @@ function renderTicketsTable() {
         </td>
         <td>
           <div style="font-weight: 700; color: var(--text-primary); max-width: 280px;">${t.title}</div>
-          <div style="font-size: 11px; color: var(--text-secondary); font-weight: 600; margin-top: 2px;">
-            ${t.categoryName} · <span style="color: var(--text-muted);">${t.assetCode || 'Sin serie'}</span>
+          <div style="font-size: 11px; color: var(--text-secondary); font-weight: 600; margin-top: 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <span>${t.categoryName} · <span style="color: var(--text-muted);">${t.assetCode || 'Sin serie'}</span></span>
+            ${
+              hasValidAnyDeskValue(t) && (t.branch || '').toLowerCase() !== 'mundi trofeos'
+                ? `<button type="button" onclick="copyAnyDeskToClipboard('${t.id}', event)" title="Copiar AnyDesk (${t.assetCode})" style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; font-size: 10.5px; font-weight: 700; color: var(--primary); background: var(--primary-light); border: 1px solid #c7d2fe; border-radius: 6px; cursor: pointer;">
+                     <i data-lucide="copy" style="width: 11px; height: 11px;"></i> Copiar
+                   </button>`
+                : ''
+            }
           </div>
         </td>
         <td>
@@ -1188,14 +1700,14 @@ function renderTicketsTable() {
         ${isAdmin ? `<td>${getPriorityBadgeHTML(t.priority)}</td>` : ''}
         <td>${getStatusBadgeHTML(t.status)}</td>
         <td>
-          <div style="font-size: 12px; font-weight: 700; color: ${t.assignedTechId ? 'var(--text-primary)' : 'var(--text-muted)'};">
-            ${t.assignedTechName || 'Sin asignar'}
+          <div style="font-size: 12px; font-weight: 700; color: ${isTicketClaimed(t) ? 'var(--text-primary)' : 'var(--text-muted)'};">
+            ${isTicketClaimed(t) ? t.assignedTechName : 'Sin asignar'}
           </div>
         </td>
         <td style="text-align: right; white-space: nowrap;">
           ${
             isAdmin && t.status !== 'Resuelto' && t.status !== 'Cerrado'
-              ? !t.assignedTechId
+              ? !isTicketClaimed(t)
                 ? `<button type="button" class="btn-secondary-custom" onclick="claimTicket('${t.id}')" style="padding: 6px 11px; font-size: 12px; background: #ecfdf5; color: #047857; border-color: #a7f3d0; font-weight: 800; margin-right: 4px;">
                      <i data-lucide="hand" style="width: 14px; height: 14px;"></i> Tomar Ticket
                    </button>`
@@ -1264,7 +1776,7 @@ function renderKanbanBoard() {
               <div style="display: flex; gap: 4px; align-items: center;">
                 ${
                   isAdmin && t.status !== 'Resuelto' && t.status !== 'Cerrado'
-                    ? !t.assignedTechId
+                    ? !isTicketClaimed(t)
                       ? `<button type="button" class="btn-quick-step" style="background: #ecfdf5; color: #047857; border-color: #a7f3d0;" onclick="event.stopPropagation(); claimTicket('${t.id}')">Tomar Ticket</button>`
                       : t.assignedTechId === currentUser.id
                         ? `<button type="button" class="btn-quick-step" style="background: #fffbeb; color: #b45309; border-color: #fde68a;" onclick="event.stopPropagation(); releaseTicket('${t.id}')">Dejar Ticket</button>`
@@ -1272,7 +1784,7 @@ function renderKanbanBoard() {
                     : ''
                 }
                 ${
-                  isAdmin && col.next && (!t.assignedTechId || t.assignedTechId === currentUser.id)
+                  isAdmin && col.next && (!isTicketClaimed(t) || t.assignedTechId === currentUser.id)
                     ? `<button type="button" class="btn-quick-step" onclick="event.stopPropagation(); quickAdvanceTicket('${t.id}', '${col.next}')">${col.nextLabel}</button>`
                     : ''
                 }
@@ -1298,13 +1810,21 @@ function renderKanbanBoard() {
   refreshIcons();
 }
 
+function isTicketClaimed(ticket) {
+  if (!ticket) return false;
+  if (ticket.status === 'Abierto') return false;
+  if (!ticket.assignedTechId || ticket.assignedTechId === '0') return false;
+  if (!ticket.assignedTechName || ticket.assignedTechName === 'Sin asignar') return false;
+  return true;
+}
+
 async function claimTicket(ticketId) {
-  if (!ticketId || !currentUser || currentUser.activeViewRole !== 'admin') return;
+  if (!ticketId || !currentUser || (currentUser.activeViewRole !== 'admin' && currentUser.role !== 'admin')) return;
   const tickets = TicketStorage.getTickets();
   const idx = tickets.findIndex(t => t.id === ticketId);
   if (idx === -1) return;
 
-  if (tickets[idx].assignedTechId && tickets[idx].assignedTechId !== currentUser.id) {
+  if (isTicketClaimed(tickets[idx]) && tickets[idx].assignedTechId !== currentUser.id) {
     showToast(`Este ticket ya fue tomado por ${tickets[idx].assignedTechName}. Debe presionar "Dejar Ticket" para liberarlo.`, 'error');
     return;
   }
@@ -1327,25 +1847,27 @@ async function claimTicket(ticketId) {
     text: `Ticket tomado por ${currentUser.name} — Estado: En Proceso.`
   });
 
+  // 1. Actualizar inmediatamente en pantalla (0ms de espera)
   TicketStorage.saveTickets(tickets);
-  await TicketStorage.syncTicketToBackend(tickets[idx]);
-  updateDbStatusBadge();
-
+  lastKnownTicketsSnapshot = buildTicketsSnapshot(tickets);
   renderKPIs();
   renderTicketsView();
   if (activeModalTicketId === ticketId) {
     openTicketModal(ticketId);
   }
   showToast(`Ticket ${tickets[idx].code} tomado por ${currentUser.name}`);
+
+  // 2. Sincronizar en segundo plano con PHP + MySQL
+  TicketStorage.syncTicketToBackend(tickets[idx]).then(() => updateDbStatusBadge());
 }
 
 async function releaseTicket(ticketId) {
-  if (!ticketId || !currentUser || currentUser.activeViewRole !== 'admin') return;
+  if (!ticketId || !currentUser || (currentUser.activeViewRole !== 'admin' && currentUser.role !== 'admin')) return;
   const tickets = TicketStorage.getTickets();
   const idx = tickets.findIndex(t => t.id === ticketId);
   if (idx === -1) return;
 
-  if (tickets[idx].assignedTechId && tickets[idx].assignedTechId !== currentUser.id) {
+  if (isTicketClaimed(tickets[idx]) && tickets[idx].assignedTechId !== currentUser.id && !isMainAdmin(currentUser)) {
     showToast(`Solo ${tickets[idx].assignedTechName} puede dejar este ticket`, 'error');
     return;
   }
@@ -1368,16 +1890,18 @@ async function releaseTicket(ticketId) {
     text: `Ticket liberado por ${currentUser.name} — Disponible para que otro integrante de Soporte IT lo tome.`
   });
 
+  // 1. Actualizar inmediatamente en pantalla (0ms de espera)
   TicketStorage.saveTickets(tickets);
-  await TicketStorage.syncTicketToBackend(tickets[idx]);
-  updateDbStatusBadge();
-
+  lastKnownTicketsSnapshot = buildTicketsSnapshot(tickets);
   renderKPIs();
   renderTicketsView();
   if (activeModalTicketId === ticketId) {
     openTicketModal(ticketId);
   }
   showToast(`Ticket ${tickets[idx].code} liberado y disponible nuevamente`);
+
+  // 2. Sincronizar en segundo plano con PHP + MySQL
+  TicketStorage.syncTicketToBackend(tickets[idx]).then(() => updateDbStatusBadge());
 }
 
 async function quickAdvanceTicket(ticketId, nextStatus) {
@@ -1385,7 +1909,7 @@ async function quickAdvanceTicket(ticketId, nextStatus) {
   const idx = tickets.findIndex(t => t.id === ticketId);
   if (idx === -1) return;
 
-  if (tickets[idx].assignedTechId && currentUser && tickets[idx].assignedTechId !== currentUser.id) {
+  if (isTicketClaimed(tickets[idx]) && currentUser && tickets[idx].assignedTechId !== currentUser.id && !isMainAdmin(currentUser)) {
     showToast(`Este ticket está siendo atendido por ${tickets[idx].assignedTechName}`, 'error');
     return;
   }
@@ -1395,7 +1919,7 @@ async function quickAdvanceTicket(ticketId, nextStatus) {
   const dateStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
   tickets[idx].status = nextStatus;
-  if (!tickets[idx].assignedTechId && currentUser && currentUser.activeViewRole === 'admin') {
+  if (!isTicketClaimed(tickets[idx]) && currentUser && (currentUser.activeViewRole === 'admin' || currentUser.role === 'admin')) {
     tickets[idx].assignedTechId = currentUser.id;
     tickets[idx].assignedTechName = currentUser.name;
   }
@@ -1409,12 +1933,12 @@ async function quickAdvanceTicket(ticketId, nextStatus) {
   });
 
   TicketStorage.saveTickets(tickets);
-  await TicketStorage.syncTicketToBackend(tickets[idx]);
-  updateDbStatusBadge();
-
+  lastKnownTicketsSnapshot = buildTicketsSnapshot(tickets);
   renderKPIs();
   renderTicketsView();
   showToast(`Ticket ${tickets[idx].code} movido a ${nextStatus}`);
+
+  TicketStorage.syncTicketToBackend(tickets[idx]).then(() => updateDbStatusBadge());
 }
 
 /* =========================================================================
@@ -1434,9 +1958,24 @@ function openTicketModal(ticketId) {
   document.getElementById('mdl-country').textContent = ticket.country;
   document.getElementById('mdl-category').textContent = ticket.categoryName;
   const isTicketMundi = (ticket.branch || '').toLowerCase() === 'mundi trofeos';
-  document.getElementById('mdl-asset').textContent = isTicketMundi
-    ? `Área: ${ticket.assetCode || 'No especificada'}`
-    : `Equipo: ${ticket.assetCode || 'No especificado'}`;
+  const assetEl = document.getElementById('mdl-asset');
+  if (assetEl) {
+    const labelPrefix = isTicketMundi ? 'Área' : 'AnyDesk';
+    const valDisplay = ticket.assetCode || (isTicketMundi ? 'No especificada' : 'No especificado');
+    const copyBtnHtml =
+      hasValidAnyDeskValue(ticket) && !isTicketMundi
+        ? ` <button type="button" onclick="copyAnyDeskToClipboard('${ticket.id}', event)" title="Copiar AnyDesk al portapapeles" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; margin-left: 4px; font-size: 10.5px; font-weight: 700; color: var(--primary); background: var(--primary-light); border: 1px solid #c7d2fe; border-radius: 6px; cursor: pointer;">
+              <i data-lucide="copy" style="width: 11px; height: 11px;"></i> Copiar AnyDesk
+            </button>`
+        : '';
+    assetEl.innerHTML = '';
+    const spanText = document.createElement('span');
+    spanText.textContent = `${labelPrefix}: ${valDisplay}`;
+    assetEl.appendChild(spanText);
+    if (copyBtnHtml) {
+      assetEl.insertAdjacentHTML('beforeend', copyBtnHtml);
+    }
+  }
   const isAdmin = currentUser && currentUser.activeViewRole === 'admin';
   document.getElementById('mdl-date').textContent = ticket.createdAtDisplay;
   document.getElementById('mdl-priority-badge').innerHTML = `${isAdmin ? getPriorityBadgeHTML(ticket.priority) : ''} ${getStatusBadgeHTML(ticket.status)} ${isAdmin ? getSLABadgeHTML(ticket) : ''}`;
@@ -1449,6 +1988,33 @@ function openTicketModal(ticketId) {
     evBox.style.display = 'block';
   } else {
     evBox.style.display = 'none';
+  }
+
+  // Mostrar evidencia fotográfica de solución (Soporte IT) tanto para la tienda como para IT
+  const resEvViewBox = document.getElementById('mdl-resolution-evidence-view-container');
+  const resEvViewImg = document.getElementById('mdl-resolution-evidence-view-img');
+  if (resEvViewBox && resEvViewImg) {
+    if (ticket.resolutionAttachmentBase64) {
+      resEvViewImg.src = ticket.resolutionAttachmentBase64;
+      resEvViewBox.style.display = 'block';
+    } else {
+      resEvViewBox.style.display = 'none';
+    }
+  }
+
+  // Cargar vista previa de la foto de solución en el formulario de Soporte IT
+  currentResolutionAttachmentBase64 = ticket.resolutionAttachmentBase64 || null;
+  const resInput = document.getElementById('mdl-res-attachment-input');
+  const resPreviewBox = document.getElementById('mdl-res-attachment-preview-box');
+  const resPreviewImg = document.getElementById('mdl-res-attachment-img');
+  if (resInput) resInput.value = '';
+  if (resPreviewBox && resPreviewImg) {
+    if (currentResolutionAttachmentBase64) {
+      resPreviewImg.src = currentResolutionAttachmentBase64;
+      resPreviewBox.style.display = 'block';
+    } else {
+      resPreviewBox.style.display = 'none';
+    }
   }
 
   const adminBox = document.getElementById('mdl-admin-controls');
@@ -1502,6 +2068,9 @@ function applyModalLockAndCommentState(ticket) {
   const techSel = document.getElementById('mdl-tech-select');
   const prioSel = document.getElementById('mdl-prio-select');
   const notesInp = document.getElementById('mdl-resolution-notes');
+  const resAttInp = document.getElementById('mdl-res-attachment-input');
+  const lblResAtt = document.getElementById('lbl-mdl-res-attachment');
+  const btnClearResAtt = document.getElementById('btn-clear-res-attachment');
 
   if (statusSel) statusSel.value = ticket.status;
   if (techSel) techSel.value = ticket.assignedTechId || '';
@@ -1525,6 +2094,9 @@ function applyModalLockAndCommentState(ticket) {
       if (techSel) techSel.disabled = true;
       if (prioSel) prioSel.disabled = true;
       if (notesInp) notesInp.disabled = true;
+      if (resAttInp) resAttInp.disabled = true;
+      if (lblResAtt) lblResAtt.style.opacity = '0.5';
+      if (btnClearResAtt) btnClearResAtt.style.display = 'none';
       if (btnSaveAdmin) btnSaveAdmin.style.display = 'none';
     } else {
       if (lockedBanner) lockedBanner.style.display = 'none';
@@ -1532,6 +2104,9 @@ function applyModalLockAndCommentState(ticket) {
       if (techSel) techSel.disabled = false;
       if (prioSel) prioSel.disabled = false;
       if (notesInp) notesInp.disabled = false;
+      if (resAttInp) resAttInp.disabled = false;
+      if (lblResAtt) lblResAtt.style.opacity = '1';
+      if (btnClearResAtt) btnClearResAtt.style.display = 'inline-block';
       if (btnSaveAdmin) btnSaveAdmin.style.display = 'inline-flex';
     }
     return;
@@ -1539,18 +2114,19 @@ function applyModalLockAndCommentState(ticket) {
 
   // Si el ticket está activo (Abierto, En Proceso, En Espera)
   if (btnModalReopen) btnModalReopen.style.display = 'none';
-  const isUnassigned = !ticket.assignedTechId;
-  const isOwnedByMe = Boolean(currentUser && ticket.assignedTechId === currentUser.id);
-  const isLockedByOther = Boolean(canAttend && ticket.assignedTechId && !isOwnedByMe);
+  const claimed = isTicketClaimed(ticket);
+  const isUnassigned = !claimed;
+  const isOwnedByMe = Boolean(claimed && currentUser && ticket.assignedTechId === currentUser.id);
+  const isLockedByOther = Boolean(canAttend && claimed && !isOwnedByMe && !isSuper);
 
   if (btnModalClaim) {
     btnModalClaim.style.display = canAttend && isUnassigned ? 'inline-flex' : 'none';
   }
   if (btnModalRelease) {
-    btnModalRelease.style.display = canAttend && isOwnedByMe ? 'inline-flex' : 'none';
+    btnModalRelease.style.display = canAttend && (isOwnedByMe || (claimed && isSuper)) ? 'inline-flex' : 'none';
   }
   if (lockedBanner) {
-    if (isLockedByOther) {
+    if (claimed && !isOwnedByMe) {
       lockedBanner.innerHTML = `<i data-lucide="lock" style="width: 14px; height: 14px;"></i> En atención por ${ticket.assignedTechName}`;
       lockedBanner.style.display = 'inline-flex';
     } else {
@@ -1562,6 +2138,9 @@ function applyModalLockAndCommentState(ticket) {
   if (techSel) techSel.disabled = isLockedByOther || !canAttend;
   if (prioSel) prioSel.disabled = isLockedByOther || !canChangePrio;
   if (notesInp) notesInp.disabled = isLockedByOther || !canAttend;
+  if (resAttInp) resAttInp.disabled = isLockedByOther || !canAttend;
+  if (lblResAtt) lblResAtt.style.opacity = isLockedByOther || !canAttend ? '0.5' : '1';
+  if (btnClearResAtt) btnClearResAtt.style.display = isLockedByOther || !canAttend ? 'none' : 'inline-block';
   if (btnSaveAdmin) btnSaveAdmin.style.display = isLockedByOther || !canAttend ? 'none' : 'inline-flex';
 }
 
@@ -1595,15 +2174,15 @@ async function reopenTicketByMainAdmin(ticketId) {
   });
 
   TicketStorage.saveTickets(tickets);
-  await TicketStorage.syncTicketToBackend(tickets[idx]);
-  updateDbStatusBadge();
-
+  lastKnownTicketsSnapshot = buildTicketsSnapshot(tickets);
   renderKPIs();
   renderTicketsView();
   if (activeModalTicketId === ticketId) {
     openTicketModal(ticketId);
   }
   showToast(`Ticket ${tickets[idx].code} reabierto y puesto En Proceso`);
+
+  TicketStorage.syncTicketToBackend(tickets[idx]).then(() => updateDbStatusBadge());
 }
 
 function closeTicketModal() {
@@ -2077,9 +2656,21 @@ function renderStatsModalContent() {
         t.assignedTechId === admin.id ||
         (t.assignedTechName || '').toLowerCase() === (admin.name || '').toLowerCase()
     );
-    const resolved = assigned.filter(t => t.status === 'Resuelto' || t.status === 'Cerrado').length;
+    const resolvedTickets = assigned.filter(t => t.status === 'Resuelto' || t.status === 'Cerrado');
+    const resolved = resolvedTickets.length;
     const inProgress = assigned.filter(t => t.status === 'En Proceso' || t.status === 'En Espera').length;
     const open = assigned.filter(t => t.status === 'Abierto').length;
+
+    const durations = resolvedTickets
+      .map(t => TicketStorage.computeResolutionDuration(t))
+      .filter(Boolean)
+      .map(d => d.minutes);
+    const avgMinutes =
+      durations.length > 0
+        ? Math.round(durations.reduce((acc, m) => acc + m, 0) / durations.length)
+        : 0;
+    const avgTimeLabel =
+      durations.length > 0 ? TicketStorage.formatDurationMinutes(avgMinutes) : '—';
 
     return {
       id: admin.id,
@@ -2088,7 +2679,8 @@ function renderStatsModalContent() {
       resolved,
       inProgress,
       open,
-      total: assigned.length
+      total: assigned.length,
+      avgTimeLabel
     };
   });
 
@@ -2143,6 +2735,7 @@ function renderStatsModalContent() {
 
           <div style="display: flex; gap: 14px; font-size: 11.5px; color: var(--text-secondary); font-weight: 700; flex-wrap: wrap;">
             <span>✅ Resueltos / Cerrados: <strong style="color: var(--emerald);">${item.resolved}</strong></span>
+            <span>⏱️ Tiempo Promedio: <strong style="color: var(--primary);">${item.avgTimeLabel}</strong></span>
             <span>🔧 En Proceso: <strong style="color: var(--amber);">${item.inProgress}</strong></span>
             <span>📥 Abiertos: <strong style="color: var(--blue);">${item.open}</strong></span>
             <span>📊 Total Asignados: <strong style="color: var(--text-primary);">${item.total}</strong></span>
@@ -2235,10 +2828,10 @@ async function addTicketComment() {
   input.value = '';
   TicketStorage.saveTickets(tickets);
   lastKnownTicketsSnapshot = buildTicketsSnapshot(tickets);
-  await TicketStorage.syncTicketToBackend(tickets[idx]);
-  updateDbStatusBadge();
   renderModalComments(tickets[idx]);
   showToast('Comentario sincronizado en el ticket');
+
+  TicketStorage.syncTicketToBackend(tickets[idx]).then(() => updateDbStatusBadge());
 }
 
 async function saveTicketAdminChanges() {
@@ -2247,18 +2840,19 @@ async function saveTicketAdminChanges() {
   const idx = tickets.findIndex(t => t.id === activeModalTicketId);
   if (idx === -1) return;
 
+  const isSuper = isMainAdmin(currentUser);
   const isFinalized = tickets[idx].status === 'Resuelto' || tickets[idx].status === 'Cerrado';
-  if (isFinalized && !isMainAdmin(currentUser)) {
+  if (isFinalized && !isSuper) {
     showToast('Este ticket ya fue finalizado. Solo el Administrador General (Maynor Cuyuche) puede reabrirlo o modificarlo.', 'error');
     return;
   }
 
   if (
-    tickets[idx].assignedTechId &&
+    isTicketClaimed(tickets[idx]) &&
     currentUser &&
     tickets[idx].assignedTechId !== currentUser.id &&
-    tickets[idx].status !== 'Resuelto' &&
-    tickets[idx].status !== 'Cerrado'
+    !isSuper &&
+    !isFinalized
   ) {
     showToast(`Este ticket está en atención por ${tickets[idx].assignedTechName}. Debe presionar "Dejar Ticket" para liberarlo.`, 'error');
     return;
@@ -2273,6 +2867,10 @@ async function saveTicketAdminChanges() {
   if (!newTechId && currentUser && currentUser.role === 'admin' && newStatus !== 'Abierto') {
     newTechId = currentUser.id;
   }
+  // Si el estado vuelve a Abierto, limpiar asignación para que pueda ser tomado de nuevo
+  if (newStatus === 'Abierto') {
+    newTechId = '';
+  }
 
   const techObj = TicketStorage.getUsers().find(u => u.id === newTechId);
   const techName = techObj ? techObj.name : 'Sin asignar';
@@ -2286,7 +2884,12 @@ async function saveTicketAdminChanges() {
   tickets[idx].assignedTechName = techName;
   tickets[idx].priority = newPrio;
   tickets[idx].resolutionNotes = notes;
+  tickets[idx].resolutionAttachmentBase64 = currentResolutionAttachmentBase64 || null;
+  if (newStatus === 'Resuelto' || newStatus === 'Cerrado') {
+    tickets[idx].resolvedAtDisplay = dateStr;
+  }
 
+  if (!Array.isArray(tickets[idx].comments)) tickets[idx].comments = [];
   tickets[idx].comments.push({
     author: currentUser ? currentUser.name : 'Soporte IT',
     role: 'Soporte IT',
@@ -2294,14 +2897,16 @@ async function saveTicketAdminChanges() {
     text: `Actualización de soporte — Estado: ${newStatus} | Técnico: ${techName}${notes ? ' | Nota: ' + notes : ''}`
   });
 
+  // 1. Actualizar inmediatamente en pantalla (0ms de espera)
   TicketStorage.saveTickets(tickets);
-  await TicketStorage.syncTicketToBackend(tickets[idx]);
-  updateDbStatusBadge();
-
+  lastKnownTicketsSnapshot = buildTicketsSnapshot(tickets);
   renderKPIs();
   renderTicketsView();
   openTicketModal(activeModalTicketId);
-  showToast(`Ticket ${tickets[idx].code} actualizado`);
+  showToast(`Ticket ${tickets[idx].code} guardado (${newStatus})`);
+
+  // 2. Sincronizar en segundo plano con PHP + MySQL
+  TicketStorage.syncTicketToBackend(tickets[idx]).then(() => updateDbStatusBadge());
 }
 
 async function deleteCurrentTicket() {
@@ -2354,6 +2959,8 @@ async function downloadTicketPDF() {
   const comments = Array.isArray(ticket.comments) ? ticket.comments : [];
   const lastActivityDate = comments.length > 0 ? comments[comments.length - 1].date : ticket.createdAtDisplay;
   const isFinalized = ticket.status === 'Resuelto' || ticket.status === 'Cerrado';
+  const resolutionDuration = TicketStorage.computeResolutionDuration(ticket);
+  const durationBadgeText = resolutionDuration ? ` (${resolutionDuration.text})` : '';
 
   // Limpiar texto duplicado de nota técnica en la bitácora (ya aparece en la sección de Gestión Técnica)
   const formatCommentText = rawText => {
@@ -2399,18 +3006,36 @@ async function downloadTicketPDF() {
         ? '#1d4ed8'
         : '#0f172a';
 
-  const evidenceHtml = ticket.attachmentBase64
-    ? `
+  const hasStorePhoto = Boolean(ticket.attachmentBase64);
+  const hasTechPhoto = Boolean(ticket.resolutionAttachmentBase64);
+  const evidenceHtml =
+    hasStorePhoto || hasTechPhoto
+      ? `
       <div style="margin-top: 12px;">
         <div style="font-size: 12px; font-weight: 700; color: #0f172a; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; margin-bottom: 6px;">
           Evidencia Fotográfica Adjunta
         </div>
-        <div style="text-align: center; padding: 4px 0;">
-          <img src="${ticket.attachmentBase64}" style="max-width: 100%; max-height: 130px; border-radius: 6px; border: 1px solid #e2e8f0; object-fit: contain;">
+        <div style="display: grid; grid-template-columns: ${hasStorePhoto && hasTechPhoto ? '1fr 1fr' : '1fr'}; gap: 14px; padding: 4px 0;">
+          ${
+            hasStorePhoto
+              ? `<div style="text-align: center;">
+                   <div style="font-size: 9.5px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 4px;">Reporte Inicial (Tienda)</div>
+                   <img src="${ticket.attachmentBase64}" style="max-width: 100%; max-height: 125px; border-radius: 6px; border: 1px solid #e2e8f0; object-fit: contain;">
+                 </div>`
+              : ''
+          }
+          ${
+            hasTechPhoto
+              ? `<div style="text-align: center;">
+                   <div style="font-size: 9.5px; font-weight: 700; color: #047857; text-transform: uppercase; margin-bottom: 4px;">Comprobante de Solución (Soporte IT)</div>
+                   <img src="${ticket.resolutionAttachmentBase64}" style="max-width: 100%; max-height: 125px; border-radius: 6px; border: 1px solid #a7f3d0; object-fit: contain;">
+                 </div>`
+              : ''
+          }
         </div>
       </div>
     `
-    : '';
+      : '';
 
   // Ancho base de renderizado sin márgenes internos (los márgenes exactos de Hoja Carta se aplican en milímetros en jsPDF)
   const SHEET_WIDTH_PX = 760;
@@ -2475,8 +3100,8 @@ async function downloadTicketPDF() {
           <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(ticket.assetCode || 'No especificado')}</div>
         </div>
         <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 7px;">
-          <div style="font-size: 9.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">${isFinalized ? 'FECHA DE CIERRE / RESOLUCIÓN' : 'ÚLTIMA ACTUALIZACIÓN'}</div>
-          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(lastActivityDate)}</div>
+          <div style="font-size: 9.5px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em;">${isFinalized ? 'CIERRE / TIEMPO ATENCIÓN' : 'ÚLTIMA ACTUALIZACIÓN'}</div>
+          <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 3px;">${escapeHtml(lastActivityDate)}${escapeHtml(durationBadgeText)}</div>
         </div>
       </div>
 
@@ -2547,7 +3172,7 @@ async function downloadTicketPDF() {
 
         <!-- SUB-RESUMEN ALINEADO A LA DERECHA -->
         <div style="text-align: right; font-size: 10.5px; color: #334155; margin-top: 7px; font-weight: 500;">
-          Folio: <strong>${escapeHtml(ticket.code)}</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Gestión: <strong>${escapeHtml(ticket.categoryName)}</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Sucursal: <strong>${escapeHtml(ticket.branch)}</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Técnico IT: <strong>${escapeHtml(ticket.assignedTechName || 'Sin asignar')}</strong>${isAdmin ? ` &nbsp;&nbsp;·&nbsp;&nbsp; Prioridad: <strong>${escapeHtml(ticket.priority)}</strong>` : ''}
+          Folio: <strong>${escapeHtml(ticket.code)}</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Gestión: <strong>${escapeHtml(ticket.categoryName)}</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Sucursal: <strong>${escapeHtml(ticket.branch)}</strong> &nbsp;&nbsp;·&nbsp;&nbsp; Técnico IT: <strong>${escapeHtml(ticket.assignedTechName || 'Sin asignar')}</strong>${resolutionDuration ? ` &nbsp;&nbsp;·&nbsp;&nbsp; Tiempo Atención: <strong>${escapeHtml(resolutionDuration.text)}</strong>` : ''}${isAdmin ? ` &nbsp;&nbsp;·&nbsp;&nbsp; Prioridad: <strong>${escapeHtml(ticket.priority)}</strong>` : ''}
         </div>
 
         <!-- FIRMAS DE CONFORMIDAD PERSONALIZADAS -->
@@ -2690,11 +3315,15 @@ function exportTicketsCSV() {
             ? '#b45309'
             : '#334155';
 
+      const resDur = TicketStorage.computeResolutionDuration(t);
+      const resTimeCell = resDur ? resDur.text : 'En atención';
+
       return `
         <tr style="background-color: ${rowBg};">
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: bold; color: #1e293b; text-align: center;">${escapeXml(t.code)}</td>
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #334155; text-align: center;">${escapeXml(t.createdAtDisplay)}</td>
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: bold; background-color: ${statusBg}; color: ${statusColor}; text-align: center;">${escapeXml(t.status)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: bold; color: #0f172a; text-align: center;">${escapeXml(resTimeCell)}</td>
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px; font-weight: bold; color: ${prioColor}; text-align: center;">${escapeXml(t.priority)}</td>
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #0f172a;">${escapeXml(t.categoryName)}</td>
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px; color: #0f172a; font-weight: bold;">${escapeXml(t.title)}</td>
@@ -2731,12 +3360,12 @@ function exportTicketsCSV() {
     <body style="font-family: Arial, Calibri, sans-serif; font-size: 11pt;">
       <table border="1" cellspacing="0" cellpadding="5" style="border-collapse: collapse; font-family: Calibri, Arial, sans-serif;">
         <tr>
-          <td colspan="12" style="background-color: #0f172a; color: #ffffff; font-size: 14pt; font-weight: bold; padding: 10px 14px; border: 1px solid #0f172a;">
+          <td colspan="13" style="background-color: #0f172a; color: #ffffff; font-size: 14pt; font-weight: bold; padding: 10px 14px; border: 1px solid #0f172a;">
             GRUPO PREMIA · MUNDI TROFEOS · TIENDAS TROFEX — Reporte General de Tickets de Soporte IT
           </td>
         </tr>
         <tr>
-          <td colspan="12" style="background-color: #f1f5f9; color: #334155; font-size: 10pt; padding: 6px 14px; border: 1px solid #cbd5e1;">
+          <td colspan="13" style="background-color: #f1f5f9; color: #334155; font-size: 10pt; padding: 6px 14px; border: 1px solid #cbd5e1;">
             Fecha de generación: <strong>${todayDisplay}</strong> &nbsp;|&nbsp; Total de tickets exportados: <strong>${tickets.length}</strong>
           </td>
         </tr>
@@ -2744,6 +3373,7 @@ function exportTicketsCSV() {
           <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Código</th>
           <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Fecha Reporte</th>
           <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Estado</th>
+          <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Tiempo Resolución</th>
           <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Prioridad</th>
           <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Tipo de Gestión</th>
           <th style="border: 1px solid #0f172a; padding: 8px 12px; background-color: #1e293b; color: #ffffff;">Asunto / Problema</th>

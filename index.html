@@ -59,6 +59,9 @@
             <button type="button" class="user-dropdown-item" onclick="openStatsModal(); closeUserDropdownMenu();">
               <i data-lucide="bar-chart-3" style="width: 15px; height: 15px;"></i> Estadísticas
             </button>
+            <button type="button" class="user-dropdown-item" id="menu-item-manage-categories" onclick="openManageCategoriesModal(); closeUserDropdownMenu();">
+              <i data-lucide="tags" style="width: 15px; height: 15px;"></i> Categorías y Prioridades
+            </button>
             <div class="user-dropdown-header" style="margin-top: 4px; border-top: 1px solid var(--border-light); padding-top: 8px;">Gestión de Usuarios</div>
             <button type="button" class="user-dropdown-item" onclick="openNewUserModal(); closeUserDropdownMenu();">
               <i data-lucide="user-plus" style="width: 15px; height: 15px;"></i> Agregar Usuario
@@ -71,6 +74,12 @@
             </button>
           </div>
         </div>
+
+        <!-- Sound Alert Toggle Button -->
+        <button type="button" class="btn-secondary-custom" id="btn-sound-alert-toggle" onclick="toggleSoundAlerts()" title="Alerta sonora activa para nuevos tickets y cambios de estado (Haz clic para probar o silenciar)" style="padding: 7px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; background: #ecfdf5; color: #047857; border-color: #a7f3d0; font-weight: 700;">
+          <i data-lucide="bell-ring" id="icon-sound-alert" style="width: 14px; height: 14px;"></i>
+          <span id="text-sound-alert">Alerta Sonora</span>
+        </button>
 
         <!-- Logout Button -->
         <button type="button" class="btn-logout-nav" onclick="logoutSession()">
@@ -392,6 +401,14 @@
                 <select class="form-select-custom" id="filter-category" onchange="renderTicketsView()" style="display: none; flex: 1; min-width: 170px;">
                   <option value="ALL">Todas las Categorías</option>
                 </select>
+
+                <select class="form-select-custom" id="filter-period" onchange="renderTicketsView()" style="display: none; flex: 1; min-width: 155px;">
+                  <option value="ALL">📅 Todo el Historial</option>
+                  <option value="TODAY">📅 Hoy</option>
+                  <option value="LAST_7_DAYS">📅 Últimos 7 días</option>
+                  <option value="THIS_MONTH">📅 Este Mes</option>
+                  <option value="LAST_MONTH">📅 Mes Anterior</option>
+                </select>
               </div>
 
               <!-- VIEW 1: ENTERPRISE TABLE -->
@@ -470,9 +487,17 @@
 
           <!-- Evidence Image if attached -->
           <div id="mdl-evidence-container" style="display: none; margin-bottom: 16px;">
-            <label class="form-label-custom">Evidencia Fotográfica Adjunta</label>
+            <label class="form-label-custom">Evidencia Fotográfica Reportada (Tienda)</label>
             <div style="margin-top: 6px;">
-              <img id="mdl-evidence-img" src="" alt="Evidencia del ticket" style="max-width: 100%; max-height: 260px; border-radius: 10px; border: 1px solid var(--border-light); object-fit: contain;">
+              <img id="mdl-evidence-img" src="" alt="Evidencia del ticket" style="max-width: 100%; max-height: 240px; border-radius: 10px; border: 1px solid var(--border-light); object-fit: contain;">
+            </div>
+          </div>
+
+          <!-- Resolution Evidence Image if attached by IT -->
+          <div id="mdl-resolution-evidence-view-container" style="display: none; margin-bottom: 16px;">
+            <label class="form-label-custom" style="color: #047857;">✅ Evidencia Fotográfica de Solución (Soporte IT)</label>
+            <div style="margin-top: 6px;">
+              <img id="mdl-resolution-evidence-view-img" src="" alt="Comprobante de solución IT" style="max-width: 100%; max-height: 240px; border-radius: 10px; border: 1px solid #a7f3d0; object-fit: contain;">
             </div>
           </div>
 
@@ -527,6 +552,22 @@
             <div class="form-field">
               <label class="form-label-custom">Diagnóstico Técnico / Notas de Resolución</label>
               <textarea class="form-textarea-custom" id="mdl-resolution-notes" style="min-height: 70px;" placeholder="Documenta la solución aplicada, cambio de repuesto o configuración realizada..."></textarea>
+            </div>
+
+            <!-- Evidencia Fotográfica de Comprobación de Soporte IT -->
+            <div class="form-field" style="margin-top: 10px;">
+              <label class="form-label-custom">Foto / Captura de Comprobación de Solución (Opcional)</label>
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px;">
+                <label id="lbl-mdl-res-attachment" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; background: #ffffff; border: 1px dashed #6366f1; border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--primary); cursor: pointer;">
+                  <input type="file" id="mdl-res-attachment-input" accept="image/*" style="display: none;" onchange="handleResolutionAttachmentPreview(event)">
+                  <i data-lucide="camera" style="width: 15px; height: 15px;"></i> Adjuntar Foto / Captura de Solución
+                </label>
+                <span style="font-size: 11px; color: var(--text-secondary);">Se mostrará a la tienda y en la Orden PDF</span>
+              </div>
+              <div id="mdl-res-attachment-preview-box" style="display: none; margin-top: 8px; position: relative; max-width: 280px;">
+                <img id="mdl-res-attachment-img" src="" alt="Vista previa solución IT" style="width: 100%; max-height: 140px; object-fit: contain; border-radius: 8px; border: 1px solid #a7f3d0; background: #ffffff;">
+                <button type="button" id="btn-clear-res-attachment" onclick="clearResolutionAttachment()" style="position: absolute; top: 6px; right: 6px; background: rgba(15,23,42,0.85); color: #fff; border: none; border-radius: 6px; padding: 3px 8px; font-size: 10.5px; font-weight: 700; cursor: pointer;">Quitar</button>
+              </div>
             </div>
 
             <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
@@ -784,13 +825,92 @@
       </div>
     </div>
 
+    <!-- ===================================================================
+         MODAL: GESTIÓN DE CATEGORÍAS Y PRIORIDADES AUTOMÁTICAS (ADMIN GENERAL)
+         =================================================================== -->
+    <div class="modal-backdrop" id="modal-manage-categories">
+      <div class="modal-dialog" style="max-width: 720px;">
+        <div class="modal-header">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center;">
+              <i data-lucide="tags" style="width: 20px; height: 20px;"></i>
+            </div>
+            <div>
+              <h3 style="font-size: 16.5px; font-weight: 800;">Tipos de Gestión y Prioridades Automáticas</h3>
+              <p style="font-size: 12px; color: var(--text-secondary);">Configura los tipos de problemas que ven las tiendas y la prioridad oculta que se les asigna</p>
+            </div>
+          </div>
+          <button type="button" class="btn-secondary-custom" onclick="closeManageCategoriesModal()" style="padding: 6px 10px;">✕</button>
+        </div>
+
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px;">
+          <!-- Formulario para Agregar o Modificar Categoría -->
+          <form id="form-manage-category" onsubmit="handleSaveCategorySubmit(event)" style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: 12px; padding: 14px;">
+            <input type="hidden" id="cat-edit-id" value="">
+            <div style="font-size: 12px; font-weight: 800; color: var(--primary); text-transform: uppercase; margin-bottom: 10px;" id="cat-form-heading">
+              + Agregar Nuevo Tipo de Gestión
+            </div>
+            <div style="display: grid; grid-template-columns: 1.8fr 1fr 0.8fr auto; gap: 10px; align-items: end; flex-wrap: wrap;">
+              <div class="form-field">
+                <label class="form-label-custom">Nombre del Tipo de Gestión *</label>
+                <input type="text" class="form-input-custom" id="cat-input-name" required placeholder="Ej. Sistema POS / Facturación">
+              </div>
+
+              <div class="form-field">
+                <label class="form-label-custom">Prioridad Automática *</label>
+                <select class="form-select-custom" id="cat-input-priority">
+                  <option value="Baja">Baja</option>
+                  <option value="Media" selected>Media</option>
+                  <option value="Alta">Alta</option>
+                  <option value="Crítica">Crítica</option>
+                </select>
+              </div>
+
+              <div class="form-field">
+                <label class="form-label-custom">SLA (Horas) *</label>
+                <input type="number" class="form-input-custom" id="cat-input-sla" min="1" max="168" value="8" required>
+              </div>
+
+              <div style="display: flex; gap: 6px;">
+                <button type="submit" class="btn-primary-lg" id="btn-cat-submit" style="width: auto; padding: 10px 16px; font-size: 12.5px;">
+                  <i data-lucide="check" style="width: 15px; height: 15px;"></i> Guardar
+                </button>
+                <button type="button" class="btn-secondary-custom" id="btn-cat-cancel-edit" onclick="resetCategoryForm()" style="display: none; padding: 10px 12px; font-size: 12px;">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <!-- Tabla de Categorías Configuradas -->
+          <div class="table-responsive" style="max-height: 340px; overflow-y: auto; border: 1px solid var(--border-light); border-radius: 10px;">
+            <table class="enterprise-table">
+              <thead>
+                <tr>
+                  <th>Tipo de Gestión (Visible a Tiendas)</th>
+                  <th>Prioridad Automática (Oculta a Tiendas)</th>
+                  <th>Tiempo SLA</th>
+                  <th style="text-align: right;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="manage-categories-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="justify-content: flex-end;">
+          <button type="button" class="btn-secondary-custom" onclick="closeManageCategoriesModal()">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
     <!-- TOAST CONTAINER -->
     <div class="toast-stack" id="toast-container"></div>
 
   </div>
 
-  <script src="js/data.js?v=4.9"></script>
-  <script src="js/app.js?v=4.9"></script>
+  <script src="js/data.js?v=5.6"></script>
+  <script src="js/app.js?v=5.6"></script>
 </body>
 
 </html>

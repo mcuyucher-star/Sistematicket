@@ -32,7 +32,7 @@ $action = $_GET['action'] ?? 'list';
 try {
     // 1. BOOTSTRAP: Carga inicial de categorías, usuarios y tickets desde MySQL
     if ($method === 'GET' && $action === 'bootstrap') {
-        $catRows = $pdo->query("SELECT id, nombre AS name, sla_horas AS slaHours, icono AS icon FROM categorias ORDER BY nombre ASC")->fetchAll();
+        $catRows = $pdo->query("SELECT id, nombre AS name, sla_horas AS slaHours, COALESCE(prioridad, 'Media') AS priority, icono AS icon FROM categorias ORDER BY nombre ASC")->fetchAll();
         foreach ($catRows as &$c) {
             $c['slaHours'] = (int) $c['slaHours'];
         }
@@ -87,13 +87,15 @@ try {
                     prioridad, estado, solicitante_id, solicitante_nombre,
                     solicitante_email, solicitante_telefono, sucursal, pais,
                     equipo_serie, tecnico_id, tecnico_nombre, evidencia_base64,
-                    notas_resolucion, comentarios_json, fecha_creacion, fecha_actualizacion
+                    evidencia_resolucion_base64, notas_resolucion, comentarios_json,
+                    fecha_creacion, fecha_actualizacion
                 ) VALUES (
                     :id, :codigo, :titulo, :descripcion, :categoria_id, :categoria_nombre,
                     :prioridad, :estado, :solicitante_id, :solicitante_nombre,
                     :solicitante_email, :solicitante_telefono, :sucursal, :pais,
                     :equipo_serie, :tecnico_id, :tecnico_nombre, :evidencia_base64,
-                    :notas_resolucion, :comentarios_json, :fecha_creacion, :fecha_actualizacion
+                    :evidencia_resolucion_base64, :notas_resolucion, :comentarios_json,
+                    :fecha_creacion, :fecha_actualizacion
                 )
                 ON DUPLICATE KEY UPDATE
                     titulo = VALUES(titulo),
@@ -108,30 +110,32 @@ try {
                     tecnico_id = VALUES(tecnico_id),
                     tecnico_nombre = VALUES(tecnico_nombre),
                     evidencia_base64 = VALUES(evidencia_base64),
+                    evidencia_resolucion_base64 = VALUES(evidencia_resolucion_base64),
                     notas_resolucion = VALUES(notas_resolucion),
                     comentarios_json = VALUES(comentarios_json),
                     fecha_actualizacion = VALUES(fecha_actualizacion)
             ");
 
             $stmt->execute([
-                ':id' => $input['id'],
-                ':codigo' => $input['code'],
-                ':titulo' => $input['title'],
-                ':descripcion' => $input['description'],
-                ':categoria_id' => $input['categoryId'],
-                ':categoria_nombre' => $input['categoryName'],
-                ':prioridad' => $input['priority'],
-                ':estado' => $input['status'],
-                ':solicitante_id' => $input['requesterId'],
-                ':solicitante_nombre' => $input['requesterName'],
+                ':id' => $input['id'] ?? ('tkt_' . time()),
+                ':codigo' => $input['code'] ?? ('TKT-' . date('Y') . '-' . rand(100, 999)),
+                ':titulo' => $input['title'] ?? 'Sin asunto',
+                ':descripcion' => $input['description'] ?? '',
+                ':categoria_id' => $input['categoryId'] ?? 'cat_red',
+                ':categoria_nombre' => $input['categoryName'] ?? 'General',
+                ':prioridad' => $input['priority'] ?? 'Media',
+                ':estado' => $input['status'] ?? 'Abierto',
+                ':solicitante_id' => $input['requesterId'] ?? 'u_01_mundi',
+                ':solicitante_nombre' => $input['requesterName'] ?? 'Solicitante',
                 ':solicitante_email' => $input['requesterEmail'] ?? '',
                 ':solicitante_telefono' => $input['requesterPhone'] ?? '',
-                ':sucursal' => $input['branch'],
+                ':sucursal' => $input['branch'] ?? 'Mundi Trofeos',
                 ':pais' => $input['country'] ?? 'Guatemala',
                 ':equipo_serie' => $input['assetCode'] ?? '',
                 ':tecnico_id' => $input['assignedTechId'] ?? '',
                 ':tecnico_nombre' => $input['assignedTechName'] ?? 'Sin asignar',
                 ':evidencia_base64' => $input['attachmentBase64'] ?? null,
+                ':evidencia_resolucion_base64' => $input['resolutionAttachmentBase64'] ?? null,
                 ':notas_resolucion' => $input['resolutionNotes'] ?? '',
                 ':comentarios_json' => json_encode($input['comments'] ?? [], JSON_UNESCAPED_UNICODE),
                 ':fecha_creacion' => $input['createdAtSql'] ?? date('Y-m-d H:i:s'),
@@ -202,6 +206,42 @@ try {
                 'ok' => true,
                 'mode' => 'mysql_live',
                 'message' => 'Usuario eliminado correctamente'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($action === 'save_category' && !empty($input['id']) && !empty($input['name'])) {
+            $stmt = $pdo->prepare("
+                INSERT INTO categorias (id, nombre, sla_horas, prioridad, icono)
+                VALUES (:id, :nombre, :sla_horas, :prioridad, :icono)
+                ON DUPLICATE KEY UPDATE
+                    nombre = VALUES(nombre),
+                    sla_horas = VALUES(sla_horas),
+                    prioridad = VALUES(prioridad),
+                    icono = VALUES(icono)
+            ");
+            $stmt->execute([
+                ':id' => $input['id'],
+                ':nombre' => $input['name'],
+                ':sla_horas' => (int) ($input['slaHours'] ?? 8),
+                ':prioridad' => $input['priority'] ?? 'Media',
+                ':icono' => $input['icon'] ?? 'tag'
+            ]);
+            echo json_encode([
+                'ok' => true,
+                'mode' => 'mysql_live',
+                'message' => 'Categoría guardada correctamente'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($action === 'delete_category' && !empty($input['id'])) {
+            $stmt = $pdo->prepare("DELETE FROM categorias WHERE id = :id");
+            $stmt->execute([':id' => $input['id']]);
+            echo json_encode([
+                'ok' => true,
+                'mode' => 'mysql_live',
+                'message' => 'Categoría eliminada correctamente'
             ], JSON_UNESCAPED_UNICODE);
             exit;
         }

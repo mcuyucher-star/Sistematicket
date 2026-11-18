@@ -21,11 +21,20 @@ class Database {
         }
 
         try {
+            // Verificación ultra-rápida (150ms) del puerto MySQL para evitar bloqueos de 2+ segundos cuando MySQL está apagado
+            $fp = @fsockopen(self::$host, 3306, $errno, $errstr, 0.15);
+            if (!$fp) {
+                self::$error = "MySQL no está activo en " . self::$host . ":3306";
+                return null;
+            }
+            fclose($fp);
+
             $dsn = "mysql:host=" . self::$host . ";charset=utf8mb4";
             $pdo = new PDO($dsn, self::$user, self::$pass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES => false
+                PDO::ATTR_EMULATE_PREPARES => false,
+                PDO::ATTR_TIMEOUT => 1
             ]);
 
             $dbName = self::$dbName;
@@ -46,15 +55,24 @@ class Database {
     }
 
     private static function initializeSchema(PDO $pdo): void {
-        // 1. Tabla de Categorías con SLA
+        // 1. Tabla de Categorías con SLA y Prioridad Automática
         $pdo->exec("
             CREATE TABLE IF NOT EXISTS categorias (
                 id VARCHAR(32) PRIMARY KEY,
                 nombre VARCHAR(100) NOT NULL,
                 sla_horas INT NOT NULL DEFAULT 8,
+                prioridad VARCHAR(30) NOT NULL DEFAULT 'Media',
                 icono VARCHAR(40) NOT NULL DEFAULT 'tag'
             ) ENGINE=InnoDB;
         ");
+
+        $colCatPrio = $pdo->query("SHOW COLUMNS FROM categorias LIKE 'prioridad'")->fetch();
+        if (!$colCatPrio) {
+            $pdo->exec("ALTER TABLE categorias ADD COLUMN prioridad VARCHAR(30) NOT NULL DEFAULT 'Media'");
+            $pdo->exec("UPDATE categorias SET prioridad = 'Baja' WHERE id = 'cat_imp'");
+            $pdo->exec("UPDATE categorias SET prioridad = 'Media' WHERE id IN ('cat_red', 'cat_mant')");
+            $pdo->exec("UPDATE categorias SET prioridad = 'Alta' WHERE id IN ('cat_inst', 'cat_comp')");
+        }
 
         // 2. Tabla de Usuarios y Técnicos
         $pdo->exec("
@@ -109,12 +127,18 @@ class Database {
                 tecnico_id VARCHAR(32) DEFAULT NULL,
                 tecnico_nombre VARCHAR(120) DEFAULT 'Sin asignar',
                 evidencia_base64 LONGTEXT DEFAULT NULL,
+                evidencia_resolucion_base64 LONGTEXT DEFAULT NULL,
                 notas_resolucion TEXT DEFAULT NULL,
                 comentarios_json LONGTEXT DEFAULT NULL,
                 fecha_creacion DATETIME NOT NULL,
                 fecha_actualizacion DATETIME NOT NULL
             ) ENGINE=InnoDB;
         ");
+
+        $colResEv = $pdo->query("SHOW COLUMNS FROM tickets LIKE 'evidencia_resolucion_base64'")->fetch();
+        if (!$colResEv) {
+            $pdo->exec("ALTER TABLE tickets ADD COLUMN evidencia_resolucion_base64 LONGTEXT DEFAULT NULL");
+        }
 
         self::seedDefaults($pdo);
     }
@@ -125,13 +149,13 @@ class Database {
         if ($hasNewCats === 0) {
             $pdo->exec("DELETE FROM categorias");
             $categorias = [
-                ['cat_imp', 'Impresoras', 12, 'printer'],
-                ['cat_red', 'Red', 8, 'wifi'],
-                ['cat_inst', 'Instalación de Equipos', 4, 'cpu'],
-                ['cat_mant', 'Mantenimiento y Respaldo de Datos', 8, 'hard-drive'],
-                ['cat_comp', 'Compras de Nuevos Equipos', 4, 'shopping-cart']
+                ['cat_imp', 'Impresoras', 12, 'Baja', 'printer'],
+                ['cat_red', 'Red', 8, 'Media', 'wifi'],
+                ['cat_inst', 'Instalación de Equipos', 4, 'Alta', 'cpu'],
+                ['cat_mant', 'Mantenimiento y Respaldo de Datos', 8, 'Media', 'hard-drive'],
+                ['cat_comp', 'Compras de Nuevos Equipos', 4, 'Alta', 'shopping-cart']
             ];
-            $stmt = $pdo->prepare("INSERT INTO categorias (id, nombre, sla_horas, icono) VALUES (?, ?, ?, ?)");
+            $stmt = $pdo->prepare("INSERT INTO categorias (id, nombre, sla_horas, prioridad, icono) VALUES (?, ?, ?, ?, ?)");
             foreach ($categorias as $c) {
                 $stmt->execute($c);
             }
@@ -360,6 +384,7 @@ class Database {
             'assignedTechId' => $row['tecnico_id'] ?? '',
             'assignedTechName' => $row['tecnico_nombre'] ?: 'Sin asignar',
             'attachmentBase64' => $row['evidencia_base64'] ?? null,
+            'resolutionAttachmentBase64' => $row['evidencia_resolucion_base64'] ?? null,
             'resolutionNotes' => $row['notas_resolucion'] ?? '',
             'comments' => $comments,
             'createdAtDisplay' => $createdAtDisplay,

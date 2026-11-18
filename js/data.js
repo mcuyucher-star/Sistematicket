@@ -133,8 +133,8 @@ const DEFAULT_TICKETS = [
     branch: 'Tienda Premia San Salvador',
     country: 'El Salvador',
     assetCode: 'POS-SV-CAJA01',
-    assignedTechId: 't3',
-    assignedTechName: 'IT2',
+    assignedTechId: '',
+    assignedTechName: 'Sin asignar',
     attachmentBase64: null,
     resolutionNotes: '',
     comments: [
@@ -184,22 +184,94 @@ const DEFAULT_TICKETS = [
 const TicketStorage = {
   dbConnected: false,
   phpVersion: null,
+  _memoryTickets: null,
+  _lastLocalWriteMs: 0,
+
+  normalizeTicketList(list) {
+    if (!Array.isArray(list)) return DEFAULT_TICKETS;
+    return list.map(t => {
+      const noTech =
+        !t.assignedTechId ||
+        t.assignedTechId === '0' ||
+        !t.assignedTechName ||
+        t.assignedTechName === 'Sin asignar' ||
+        t.status === 'Abierto';
+      return {
+        ...t,
+        assignedTechId: noTech ? '' : t.assignedTechId,
+        assignedTechName: noTech ? 'Sin asignar' : t.assignedTechName,
+        comments: Array.isArray(t.comments) ? t.comments : []
+      };
+    });
+  },
 
   getCategories() {
+    const defaultPrioMap = {
+      cat_imp: 'Baja',
+      cat_red: 'Media',
+      cat_inst: 'Alta',
+      cat_mant: 'Media',
+      cat_comp: 'Alta'
+    };
+    const normalizeCats = list =>
+      (Array.isArray(list) ? list : DEFAULT_CATEGORIES).map(c => ({
+        ...c,
+        slaHours: Number(c.slaHours) || 8,
+        priority: c.priority || defaultPrioMap[c.id] || 'Media',
+        icon: c.icon || 'tag'
+      }));
+
     try {
       const raw = localStorage.getItem(TICKET_STORAGE_KEYS.CATEGORIES);
       if (!raw) {
-        localStorage.setItem(TICKET_STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
-        return DEFAULT_CATEGORIES;
+        const initial = normalizeCats(DEFAULT_CATEGORIES);
+        localStorage.setItem(TICKET_STORAGE_KEYS.CATEGORIES, JSON.stringify(initial));
+        return initial;
       }
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed) || !parsed.some(c => c.id === 'cat_inst')) {
-        localStorage.setItem(TICKET_STORAGE_KEYS.CATEGORIES, JSON.stringify(DEFAULT_CATEGORIES));
-        return DEFAULT_CATEGORIES;
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        const initial = normalizeCats(DEFAULT_CATEGORIES);
+        localStorage.setItem(TICKET_STORAGE_KEYS.CATEGORIES, JSON.stringify(initial));
+        return initial;
       }
-      return parsed;
+      return normalizeCats(parsed);
     } catch (e) {
-      return DEFAULT_CATEGORIES;
+      return normalizeCats(DEFAULT_CATEGORIES);
+    }
+  },
+
+  saveCategories(list) {
+    this._lastLocalWriteMs = Date.now();
+    try {
+      localStorage.setItem(TICKET_STORAGE_KEYS.CATEGORIES, JSON.stringify(list));
+    } catch (e) {
+      console.warn('Error guardando categorías en localStorage:', e);
+    }
+  },
+
+  async saveCategoryToBackend(catObj) {
+    try {
+      const res = await fetch('api/tickets.php?action=save_category', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(catObj)
+      });
+      return await res.json();
+    } catch (e) {
+      return { ok: false, mode: 'local_only' };
+    }
+  },
+
+  async deleteCategoryFromBackend(catId) {
+    try {
+      const res = await fetch('api/tickets.php?action=delete_category', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: catId })
+      });
+      return await res.json();
+    } catch (e) {
+      return { ok: false, mode: 'local_only' };
     }
   },
 
@@ -231,22 +303,43 @@ const TicketStorage = {
     try {
       const raw = localStorage.getItem(TICKET_STORAGE_KEYS.TICKETS);
       if (!raw) {
-        localStorage.setItem(TICKET_STORAGE_KEYS.TICKETS, JSON.stringify(DEFAULT_TICKETS));
-        return DEFAULT_TICKETS;
+        const initial = this.normalizeTicketList(DEFAULT_TICKETS);
+        this._memoryTickets = initial;
+        localStorage.setItem(TICKET_STORAGE_KEYS.TICKETS, JSON.stringify(initial));
+        return initial;
       }
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : DEFAULT_TICKETS;
+      const normalized = this.normalizeTicketList(Array.isArray(parsed) ? parsed : DEFAULT_TICKETS);
+      this._memoryTickets = normalized;
+      return normalized;
     } catch (e) {
-      return DEFAULT_TICKETS;
+      return this._memoryTickets || DEFAULT_TICKETS;
     }
   },
 
   saveTickets(list) {
-    localStorage.setItem(TICKET_STORAGE_KEYS.TICKETS, JSON.stringify(list));
+    const normalized = this.normalizeTicketList(list);
+    this._memoryTickets = normalized;
+    this._lastLocalWriteMs = Date.now();
+    try {
+      localStorage.setItem(TICKET_STORAGE_KEYS.TICKETS, JSON.stringify(normalized));
+    } catch (e) {
+      // Si localStorage excede cuota por imágenes Base64 grandes, guardar versión ligera sin romper la ejecución
+      try {
+        const lightList = normalized.map(t => ({ ...t, attachmentBase64: null, resolutionAttachmentBase64: null }));
+        localStorage.setItem(TICKET_STORAGE_KEYS.TICKETS, JSON.stringify(lightList));
+      } catch (err2) {
+        // Mantener en _memoryTickets
+      }
+    }
   },
 
   saveUsers(list) {
-    localStorage.setItem(TICKET_STORAGE_KEYS.USERS, JSON.stringify(list));
+    try {
+      localStorage.setItem(TICKET_STORAGE_KEYS.USERS, JSON.stringify(list));
+    } catch (e) {
+      console.warn('Error guardando usuarios en localStorage:', e);
+    }
   },
 
   async saveUserToBackend(userObj) {
@@ -279,6 +372,10 @@ const TicketStorage = {
    * Sincroniza desde PHP + MySQL al iniciar o refrescar la aplicación
    */
   async loadFromBackend() {
+    // Si hubo un cambio local hace menos de 2.5 segundos, respetar el estado local reciente
+    if (Date.now() - this._lastLocalWriteMs < 2500) {
+      return { ok: this.dbConnected, mode: 'local_recent', count: (this._memoryTickets || []).length };
+    }
     try {
       const res = await fetch('api/tickets.php?action=bootstrap', {
         method: 'GET',
@@ -287,6 +384,9 @@ const TicketStorage = {
       });
       const data = await res.json();
       if (data && data.ok) {
+        if (Date.now() - this._lastLocalWriteMs < 2500) {
+          return { ok: true, mode: 'local_recent', count: (this._memoryTickets || []).length };
+        }
         this.dbConnected = true;
         this.phpVersion = data.phpVersion || null;
 
@@ -297,7 +397,13 @@ const TicketStorage = {
           localStorage.setItem(TICKET_STORAGE_KEYS.USERS, JSON.stringify(data.users));
         }
         if (Array.isArray(data.tickets)) {
-          localStorage.setItem(TICKET_STORAGE_KEYS.TICKETS, JSON.stringify(data.tickets));
+          const normalized = this.normalizeTicketList(data.tickets);
+          this._memoryTickets = normalized;
+          try {
+            localStorage.setItem(TICKET_STORAGE_KEYS.TICKETS, JSON.stringify(normalized));
+          } catch (errStorage) {
+            // Ignorar si excede cuota
+          }
         }
         return { ok: true, mode: 'mysql_live', count: (data.tickets || []).length };
       }
@@ -341,6 +447,71 @@ const TicketStorage = {
     }
   },
 
+  parseAnyDateToMs(raw) {
+    if (!raw) return NaN;
+    const str = String(raw).trim();
+    // Si viene en formato SQL: YYYY-MM-DD HH:MM(:SS)
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+      const ms = new Date(str.replace(' ', 'T')).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+    // Si viene en formato DD/MM/YYYY HH:MM
+    const parts = str.split(' ');
+    const dmy = (parts[0] || '').split('/');
+    if (dmy.length === 3) {
+      const hm = (parts[1] || '00:00').split(':');
+      const dt = new Date(
+        Number(dmy[2]),
+        Number(dmy[1]) - 1,
+        Number(dmy[0]),
+        Number(hm[0] || 0),
+        Number(hm[1] || 0)
+      );
+      if (!isNaN(dt.getTime())) return dt.getTime();
+    }
+    return NaN;
+  },
+
+  formatDurationMinutes(totalMins) {
+    const mins = Math.max(1, Math.round(Number(totalMins) || 1));
+    if (mins < 60) {
+      return `${mins} min`;
+    }
+    if (mins < 1440) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return m > 0 ? `${h} h ${m} min` : `${h} h`;
+    }
+    const d = Math.floor(mins / 1440);
+    const remH = Math.floor((mins % 1440) / 60);
+    return remH > 0 ? `${d} d ${remH} h` : `${d} d`;
+  },
+
+  computeResolutionDuration(ticket) {
+    if (!ticket || (ticket.status !== 'Resuelto' && ticket.status !== 'Cerrado')) {
+      return null;
+    }
+    const startMs =
+      this.parseAnyDateToMs(ticket.createdAtSql) ||
+      this.parseAnyDateToMs(ticket.createdAtDisplay);
+    if (isNaN(startMs)) return null;
+
+    const comments = Array.isArray(ticket.comments) ? ticket.comments : [];
+    const lastCommentDate = comments.length > 0 ? comments[comments.length - 1].date : null;
+    const endMs =
+      this.parseAnyDateToMs(ticket.resolvedAtSql) ||
+      this.parseAnyDateToMs(ticket.resolvedAtDisplay) ||
+      this.parseAnyDateToMs(lastCommentDate) ||
+      this.parseAnyDateToMs(ticket.updatedAtSql) ||
+      startMs + 60000;
+
+    const diffMins = Math.max(1, Math.round((endMs - startMs) / 60000));
+    return {
+      minutes: diffMins,
+      text: this.formatDurationMinutes(diffMins)
+    };
+  },
+
   /**
    * Calcula el estado de SLA de un ticket según su categoría y estado
    */
@@ -350,9 +521,10 @@ const TicketStorage = {
     const slaHours = cat ? Number(cat.slaHours) || 8 : 8;
 
     if (ticket.status === 'Resuelto' || ticket.status === 'Cerrado') {
+      const dur = this.computeResolutionDuration(ticket);
       return {
         cssClass: 'sla-done',
-        label: `SLA ${slaHours}h · Cumplido`
+        label: dur ? `⏱️ Resuelto en ${dur.text}` : `SLA ${slaHours}h · Cumplido`
       };
     }
 
