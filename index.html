@@ -347,8 +347,8 @@
             </div>
 
             <div class="card-body">
-              <!-- UX QUICK TABS & VIEW MODE SWITCHER -->
-              <div class="toolbar-ux-row">
+              <!-- UX QUICK TABS & VIEW MODE SWITCHER (Ocultos: reemplazados por las tarjetas KPI superiores y vista de tabla) -->
+              <div class="toolbar-ux-row" style="display: none;">
                 <div class="quick-tabs-bar">
                   <button type="button" class="quick-tab-btn active" data-qtab="ALL" onclick="setQuickTabFilter('ALL')">
                     Todos <span class="quick-tab-count" id="qcount-all">0</span>
@@ -378,37 +378,97 @@
               </div>
 
               <!-- FILTER BAR -->
-              <div class="filter-bar">
-                <input type="text" class="form-input-custom" id="filter-search" placeholder="Buscar por número de ticket (TKT-...)..." oninput="renderTicketsView()" style="flex: 2; min-width: 220px;">
+              <div class="filter-bar" style="position: relative; display: flex; align-items: center; gap: 10px;">
+                <input type="text" class="form-input-custom" id="filter-search" placeholder="Buscar por número de ticket (TKT-...)..." oninput="renderTicketsView()" style="flex: 1; min-width: 220px;">
 
-                <select class="form-select-custom" id="filter-status" onchange="renderTicketsView()" style="display: none; flex: 1; min-width: 150px;">
-                  <option value="ALL">Todos los Estados</option>
-                  <option value="Abierto">Abierto</option>
-                  <option value="En Proceso">En Proceso</option>
-                  <option value="En Espera">En Espera</option>
-                  <option value="Resuelto">Resuelto</option>
-                  <option value="Cerrado">Cerrado</option>
-                </select>
+                <!-- Menú Desplegable de Filtros Avanzados (Solo Vista Soporte IT / Admin) -->
+                <div id="admin-filters-dropdown-wrapper" style="display: none; position: relative; align-items: center; gap: 8px;">
+                  <button type="button" class="btn-secondary-custom" id="btn-clear-filters-inline" onclick="resetAllTicketFilters()" style="display: none; padding: 9px 12px; font-size: 12px; color: #e11d48; border-color: #fecdd3; background: #fff1f2; font-weight: 700;">
+                    ✕ Limpiar
+                  </button>
 
-                <select class="form-select-custom" id="filter-priority" onchange="renderTicketsView()" style="display: none; flex: 1; min-width: 140px;">
-                  <option value="ALL">Toda Prioridad</option>
-                  <option value="Crítica">Crítica</option>
-                  <option value="Alta">Alta</option>
-                  <option value="Media">Media</option>
-                  <option value="Baja">Baja</option>
-                </select>
+                  <button type="button" class="btn-secondary-custom" id="btn-toggle-filters-menu" onclick="toggleFiltersDropdownMenu(event)" style="padding: 9px 15px; font-size: 13px; font-weight: 800; display: inline-flex; align-items: center; gap: 8px; background: #ffffff; border: 1.5px solid var(--border-strong); border-radius: 10px;">
+                    <i data-lucide="sliders-horizontal" style="width: 15px; height: 15px; color: var(--primary);"></i>
+                    <span>Filtros</span>
+                    <span id="active-filters-count-badge" style="display: none; background: var(--primary); color: #ffffff; font-size: 11px; font-weight: 800; padding: 1px 7px; border-radius: 999px;">0</span>
+                    <i data-lucide="chevron-down" style="width: 14px; height: 14px; color: var(--text-secondary);"></i>
+                  </button>
 
-                <select class="form-select-custom" id="filter-category" onchange="renderTicketsView()" style="display: none; flex: 1; min-width: 170px;">
-                  <option value="ALL">Todas las Categorías</option>
-                </select>
+                  <div id="filters-dropdown-menu" style="display: none; position: absolute; top: calc(100% + 8px); right: 0; width: 480px; max-width: 92vw; background: #ffffff; border: 1px solid var(--border-light); border-radius: 14px; box-shadow: var(--shadow-xl); padding: 16px; z-index: 350;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; margin-bottom: 12px; border-bottom: 1px solid var(--border-light);">
+                      <div style="display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 800; color: var(--text-primary);">
+                        <i data-lucide="filter" style="width: 15px; height: 15px; color: var(--primary);"></i>
+                        <span>Filtrar Bandeja de Tickets</span>
+                      </div>
+                      <button type="button" onclick="resetAllTicketFilters()" style="background: none; border: none; color: var(--primary); font-size: 12px; font-weight: 700; cursor: pointer;">
+                        Restablecer todos
+                      </button>
+                    </div>
 
-                <select class="form-select-custom" id="filter-period" onchange="renderTicketsView()" style="display: none; flex: 1; min-width: 155px;">
-                  <option value="ALL">📅 Todo el Historial</option>
-                  <option value="TODAY">📅 Hoy</option>
-                  <option value="LAST_7_DAYS">📅 Últimos 7 días</option>
-                  <option value="THIS_MONTH">📅 Este Mes</option>
-                  <option value="LAST_MONTH">📅 Mes Anterior</option>
-                </select>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                      <div class="form-field">
+                        <label class="form-label-custom">Estado del Ticket</label>
+                        <select class="form-select-custom" id="filter-status" onchange="handleFilterMenuChange()">
+                          <option value="ALL">Todos los Estados</option>
+                          <option value="Abierto">Abierto</option>
+                          <option value="En Proceso">En Proceso</option>
+                          <option value="En Espera">En Espera</option>
+                          <option value="Resuelto">Resuelto</option>
+                          <option value="Cerrado">Cerrado</option>
+                        </select>
+                      </div>
+
+                      <div class="form-field">
+                        <label class="form-label-custom">Nivel de Prioridad</label>
+                        <select class="form-select-custom" id="filter-priority" onchange="handleFilterMenuChange()">
+                          <option value="ALL">Toda Prioridad</option>
+                          <option value="Crítica">Crítica</option>
+                          <option value="Alta">Alta</option>
+                          <option value="Media">Media</option>
+                          <option value="Baja">Baja</option>
+                        </select>
+                      </div>
+
+                      <div class="form-field">
+                        <label class="form-label-custom">Tipo de Gestión / Categoría</label>
+                        <select class="form-select-custom" id="filter-category" onchange="handleFilterMenuChange()">
+                          <option value="ALL">Todas las Categorías</option>
+                        </select>
+                      </div>
+
+                      <div class="form-field">
+                        <label class="form-label-custom">Sucursal / País</label>
+                        <select class="form-select-custom" id="filter-branch" onchange="handleFilterMenuChange()">
+                          <option value="ALL">🏪 Todas las Sucursales</option>
+                        </select>
+                      </div>
+
+                      <div class="form-field">
+                        <label class="form-label-custom">Técnico Responsable</label>
+                        <select class="form-select-custom" id="filter-tech" onchange="handleFilterMenuChange()">
+                          <option value="ALL">👨‍💻 Todos los Técnicos</option>
+                        </select>
+                      </div>
+
+                      <div class="form-field">
+                        <label class="form-label-custom">Periodo / Fecha</label>
+                        <select class="form-select-custom" id="filter-period" onchange="handleFilterMenuChange()">
+                          <option value="ALL">📅 Todo el Historial</option>
+                          <option value="TODAY">📅 Hoy</option>
+                          <option value="LAST_7_DAYS">📅 Últimos 7 días</option>
+                          <option value="THIS_MONTH">📅 Este Mes</option>
+                          <option value="LAST_MONTH">📅 Mes Anterior</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-light);">
+                      <button type="button" class="btn-primary-lg" onclick="closeFiltersDropdownMenu()" style="width: auto; padding: 7px 16px; font-size: 12.5px;">
+                        Aplicar y Cerrar
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <!-- VIEW 1: ENTERPRISE TABLE -->
@@ -551,6 +611,23 @@
 
             <div class="form-field">
               <label class="form-label-custom">Diagnóstico Técnico / Notas de Resolución</label>
+              <div id="mdl-quick-notes-bar" style="display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px 0;">
+                <button type="button" onclick="applyQuickResolutionNote('printer')" style="padding: 4px 9px; font-size: 11px; font-weight: 700; border-radius: 999px; border: 1px solid #c7d2fe; background: #ffffff; color: #3730a3; cursor: pointer;">
+                  🖨️ Impresora configurada
+                </button>
+                <button type="button" onclick="applyQuickResolutionNote('network')" style="padding: 4px 9px; font-size: 11px; font-weight: 700; border-radius: 999px; border: 1px solid #c7d2fe; background: #ffffff; color: #3730a3; cursor: pointer;">
+                  🌐 Red restablecida
+                </button>
+                <button type="button" onclick="applyQuickResolutionNote('install')" style="padding: 4px 9px; font-size: 11px; font-weight: 700; border-radius: 999px; border: 1px solid #c7d2fe; background: #ffffff; color: #3730a3; cursor: pointer;">
+                  💻 Equipo instalado
+                </button>
+                <button type="button" onclick="applyQuickResolutionNote('maintenance')" style="padding: 4px 9px; font-size: 11px; font-weight: 700; border-radius: 999px; border: 1px solid #c7d2fe; background: #ffffff; color: #3730a3; cursor: pointer;">
+                  💾 Mantenimiento / Respaldo
+                </button>
+                <button type="button" onclick="applyQuickResolutionNote('waiting')" style="padding: 4px 9px; font-size: 11px; font-weight: 700; border-radius: 999px; border: 1px solid #fde68a; background: #fffbeb; color: #92400e; cursor: pointer;">
+                  ⏳ En espera de repuesto
+                </button>
+              </div>
               <textarea class="form-textarea-custom" id="mdl-resolution-notes" style="min-height: 70px;" placeholder="Documenta la solución aplicada, cambio de repuesto o configuración realizada..."></textarea>
             </div>
 
@@ -819,7 +896,10 @@
 
         <div class="modal-body" id="stats-modal-body" style="display: flex; flex-direction: column; gap: 18px;"></div>
 
-        <div class="modal-footer" style="justify-content: flex-end;">
+        <div class="modal-footer" style="justify-content: space-between; align-items: center;">
+          <button type="button" class="btn-primary-lg" onclick="downloadStatsReportPDF()" style="width: auto; padding: 9px 16px; font-size: 13px;">
+            <i data-lucide="file-text" style="width: 15px; height: 15px;"></i> Descargar Reporte de Estadísticas PDF
+          </button>
           <button type="button" class="btn-secondary-custom" onclick="closeStatsModal()">Cerrar</button>
         </div>
       </div>
@@ -909,8 +989,8 @@
 
   </div>
 
-  <script src="js/data.js?v=5.6"></script>
-  <script src="js/app.js?v=5.6"></script>
+  <script src="js/data.js?v=6.3"></script>
+  <script src="js/app.js?v=6.3"></script>
 </body>
 
 </html>

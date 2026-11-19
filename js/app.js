@@ -61,6 +61,7 @@ function setupKeyboardShortcuts() {
       closeManageCategoriesModal();
       closeStatsModal();
       closeUserDropdownMenu();
+      closeFiltersDropdownMenu();
     }
   });
 
@@ -68,6 +69,10 @@ function setupKeyboardShortcuts() {
     const wrapper = document.getElementById('user-profile-dropdown-wrapper');
     if (wrapper && !wrapper.contains(e.target)) {
       closeUserDropdownMenu();
+    }
+    const filterWrapper = document.getElementById('admin-filters-dropdown-wrapper');
+    if (filterWrapper && !filterWrapper.contains(e.target)) {
+      closeFiltersDropdownMenu();
     }
   });
 
@@ -837,7 +842,7 @@ function updateRoleButtonsUI() {
     qtabCritical.style.display = isAdmin ? 'inline-flex' : 'none';
   }
   if (adminViewSwitcher) {
-    adminViewSwitcher.style.display = isAdmin ? 'inline-flex' : 'none';
+    adminViewSwitcher.style.display = 'none';
   }
 
   // Mostrar el selector de Tipo de Gestión / Problema a las tiendas, pero NUNCA mostrar el Nivel de Prioridad
@@ -872,21 +877,25 @@ function updateRoleButtonsUI() {
       lblAsset.textContent = 'AnyDesk';
       assetInput.placeholder = 'Ej. 123 456 789';
       assetInput.required = false;
+      const savedAnyDesk = getRememberedAnyDesk(currentUser.branch);
+      if (savedAnyDesk && !assetInput.value.trim()) {
+        assetInput.value = savedAnyDesk;
+      }
     }
   }
 
-  // En vista Tienda ocultar selectores "Todos los Estados", "Toda Prioridad", "Todas las Categorías" y "Periodo"
+  // En vista Tienda ocultar el menú desplegable de filtros avanzados y la columna Prioridad
   const filterSearch = document.getElementById('filter-search');
+  const filtersWrapper = document.getElementById('admin-filters-dropdown-wrapper');
   const filterStatus = document.getElementById('filter-status');
   const filterPriority = document.getElementById('filter-priority');
   const filterCategory = document.getElementById('filter-category');
+  const filterBranch = document.getElementById('filter-branch');
+  const filterTech = document.getElementById('filter-tech');
   const filterPeriod = document.getElementById('filter-period');
   const thPriorityCol = document.getElementById('th-priority-col');
 
-  if (filterStatus) filterStatus.style.display = isAdmin ? 'block' : 'none';
-  if (filterPriority) filterPriority.style.display = isAdmin ? 'block' : 'none';
-  if (filterCategory) filterCategory.style.display = isAdmin ? 'block' : 'none';
-  if (filterPeriod) filterPeriod.style.display = isAdmin ? 'block' : 'none';
+  if (filtersWrapper) filtersWrapper.style.display = isAdmin ? 'flex' : 'none';
   if (thPriorityCol) thPriorityCol.style.display = isAdmin ? 'table-cell' : 'none';
   if (filterSearch) {
     filterSearch.placeholder = isAdmin
@@ -895,8 +904,11 @@ function updateRoleButtonsUI() {
   }
 
   if (!isAdmin) {
+    closeFiltersDropdownMenu();
     if (filterPriority) filterPriority.value = 'ALL';
     if (filterCategory) filterCategory.value = 'ALL';
+    if (filterBranch) filterBranch.value = 'ALL';
+    if (filterTech) filterTech.value = 'ALL';
     if (filterPeriod) filterPeriod.value = 'ALL';
     if (filterStatus && activeQuickTab !== 'OPEN') filterStatus.value = 'ALL';
     if (currentViewMode !== 'table') {
@@ -910,6 +922,7 @@ function updateRoleButtonsUI() {
       activeQuickTab = 'ALL';
     }
   }
+  updateActiveFiltersCountBadge();
 
   if (isAdmin) {
     btnAdm.classList.add('active');
@@ -959,13 +972,57 @@ function initCategoriesSelects() {
   }
 
   const techSelect = document.getElementById('mdl-tech-select');
+  const techs = TicketStorage.getUsers().filter(u => u.role === 'admin');
   if (techSelect) {
     const prevTech = techSelect.value;
-    const techs = TicketStorage.getUsers().filter(u => u.role === 'admin');
     techSelect.innerHTML =
       `<option value="">Sin asignar</option>` +
       techs.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
     if (prevTech) techSelect.value = prevTech;
+  }
+
+  // Poblar filtro de Técnico Asignado en la barra de filtros (Vista Admin / Soporte IT)
+  const filterTechSelect = document.getElementById('filter-tech');
+  if (filterTechSelect) {
+    const prevFilterTech = filterTechSelect.value || 'ALL';
+    filterTechSelect.innerHTML =
+      `<option value="ALL">👨‍💻 Todos los Técnicos</option>` +
+      `<option value="UNASSIGNED">⏳ Sin asignar</option>` +
+      techs.map(t => `<option value="${t.id}">👨‍💻 ${t.name}</option>`).join('');
+    if (Array.from(filterTechSelect.options).some(o => o.value === prevFilterTech)) {
+      filterTechSelect.value = prevFilterTech;
+    } else {
+      filterTechSelect.value = 'ALL';
+    }
+  }
+
+  // Poblar filtro de Sucursal / País en la barra de filtros (Vista Admin / Soporte IT)
+  const filterBranchSelect = document.getElementById('filter-branch');
+  if (filterBranchSelect) {
+    const prevFilterBranch = filterBranchSelect.value || 'ALL';
+    const branchSet = new Set();
+    if (typeof GUATEMALA_BRANCHES !== 'undefined') {
+      GUATEMALA_BRANCHES.forEach(b => branchSet.add(b));
+    }
+    if (typeof CENTRAL_AMERICA_COUNTRIES !== 'undefined') {
+      CENTRAL_AMERICA_COUNTRIES.filter(c => c !== 'Guatemala').forEach(c => branchSet.add(c));
+    }
+    TicketStorage.getUsers()
+      .filter(u => u.role === 'solicitante' && u.branch)
+      .forEach(u => branchSet.add(u.branch));
+    TicketStorage.getTickets()
+      .filter(t => t.branch)
+      .forEach(t => branchSet.add(t.branch));
+
+    const branchList = Array.from(branchSet);
+    filterBranchSelect.innerHTML =
+      `<option value="ALL">🏪 Todas las Sucursales</option>` +
+      branchList.map(b => `<option value="${b}">🏪 ${b}</option>`).join('');
+    if (Array.from(filterBranchSelect.options).some(o => o.value === prevFilterBranch)) {
+      filterBranchSelect.value = prevFilterBranch;
+    } else {
+      filterBranchSelect.value = 'ALL';
+    }
   }
 }
 
@@ -1310,6 +1367,34 @@ function clearResolutionAttachment() {
   if (box) box.style.display = 'none';
 }
 
+const SAVED_ANYDESK_KEY = 'sistematickets_saved_anydesk_by_branch';
+
+function getRememberedAnyDesk(branch) {
+  if (!branch) return '';
+  try {
+    const raw = localStorage.getItem(SAVED_ANYDESK_KEY);
+    if (!raw) return '';
+    const map = JSON.parse(raw);
+    return map && typeof map === 'object' ? String(map[branch] || '') : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function saveRememberedAnyDesk(branch, anydeskValue) {
+  if (!branch || !anydeskValue) return;
+  const cleanVal = String(anydeskValue).trim();
+  if (!cleanVal || cleanVal.toLowerCase() === 'no especificado') return;
+  try {
+    const raw = localStorage.getItem(SAVED_ANYDESK_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[branch] = cleanVal;
+    localStorage.setItem(SAVED_ANYDESK_KEY, JSON.stringify(map));
+  } catch (e) {
+    // Ignorar si localStorage no está disponible
+  }
+}
+
 /* =========================================================================
    3. CREATE NEW TICKET
    ========================================================================= */
@@ -1381,8 +1466,13 @@ async function handleCreateTicket(e) {
   TicketStorage.saveTickets(tickets);
   lastKnownTicketsSnapshot = buildTicketsSnapshot(tickets);
 
+  const isMundiBranch = (branch || '').toLowerCase() === 'mundi trofeos';
+  if (!isMundiBranch && assetCode) {
+    saveRememberedAnyDesk(branch, assetCode);
+  }
+
   document.getElementById('tkt-title').value = '';
-  document.getElementById('tkt-asset').value = '';
+  document.getElementById('tkt-asset').value = isMundiBranch ? '' : getRememberedAnyDesk(branch);
   document.getElementById('tkt-description').value = '';
   selectPriority('Media');
   clearAttachment();
@@ -1560,14 +1650,90 @@ function matchesTicketPeriodFilter(ticket, periodKey) {
   return true;
 }
 
+function toggleFiltersDropdownMenu(e) {
+  if (e) e.stopPropagation();
+  const menu = document.getElementById('filters-dropdown-menu');
+  if (!menu) return;
+  const isOpen = menu.style.display === 'block';
+  menu.style.display = isOpen ? 'none' : 'block';
+  refreshIcons();
+}
+
+function closeFiltersDropdownMenu() {
+  const menu = document.getElementById('filters-dropdown-menu');
+  if (menu) menu.style.display = 'none';
+}
+
+function handleFilterMenuChange() {
+  updateActiveFiltersCountBadge();
+  renderTicketsView();
+}
+
+function updateActiveFiltersCountBadge() {
+  const filterIds = [
+    'filter-status',
+    'filter-priority',
+    'filter-category',
+    'filter-branch',
+    'filter-tech',
+    'filter-period'
+  ];
+  let activeCount = 0;
+  filterIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.value && el.value !== 'ALL') {
+      activeCount++;
+    }
+  });
+
+  const badge = document.getElementById('active-filters-count-badge');
+  const clearBtn = document.getElementById('btn-clear-filters-inline');
+  const toggleBtn = document.getElementById('btn-toggle-filters-menu');
+
+  if (badge) {
+    badge.textContent = String(activeCount);
+    badge.style.display = activeCount > 0 ? 'inline-block' : 'none';
+  }
+  if (clearBtn) {
+    clearBtn.style.display = activeCount > 0 ? 'inline-flex' : 'none';
+  }
+  if (toggleBtn) {
+    toggleBtn.style.borderColor = activeCount > 0 ? 'var(--primary)' : 'var(--border-strong)';
+    toggleBtn.style.background = activeCount > 0 ? 'var(--primary-light)' : '#ffffff';
+  }
+}
+
+function resetAllTicketFilters() {
+  const filterIds = [
+    'filter-status',
+    'filter-priority',
+    'filter-category',
+    'filter-branch',
+    'filter-tech',
+    'filter-period'
+  ];
+  filterIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = 'ALL';
+  });
+  updateActiveFiltersCountBadge();
+  renderTicketsView();
+}
+
 function getFilteredTickets() {
   const search = (document.getElementById('filter-search')?.value || '').toLowerCase().trim();
   const statusFilter = document.getElementById('filter-status')?.value || 'ALL';
   const prioFilter = document.getElementById('filter-priority')?.value || 'ALL';
   const catFilter = document.getElementById('filter-category')?.value || 'ALL';
+  const branchFilter = document.getElementById('filter-branch')?.value || 'ALL';
+  const techFilter = document.getElementById('filter-tech')?.value || 'ALL';
   const periodFilter = document.getElementById('filter-period')?.value || 'ALL';
 
   const allTickets = getVisibleTicketsByRole();
+  const selectedTechObj =
+    techFilter !== 'ALL' && techFilter !== 'UNASSIGNED'
+      ? TicketStorage.getUsers().find(u => u.id === techFilter)
+      : null;
 
   const filtered = allTickets.filter(t => {
     // Quick tab special filters
@@ -1584,6 +1750,18 @@ function getFilteredTickets() {
     if (statusFilter !== 'ALL' && t.status !== statusFilter) return false;
     if (prioFilter !== 'ALL' && t.priority !== prioFilter) return false;
     if (catFilter !== 'ALL' && t.categoryId !== catFilter) return false;
+    if (branchFilter !== 'ALL' && (t.branch || '').toLowerCase() !== branchFilter.toLowerCase()) return false;
+
+    if (techFilter === 'UNASSIGNED') {
+      if (isTicketClaimed(t)) return false;
+    } else if (techFilter !== 'ALL') {
+      const matchId = t.assignedTechId === techFilter;
+      const matchName =
+        selectedTechObj &&
+        (t.assignedTechName || '').toLowerCase() === (selectedTechObj.name || '').toLowerCase();
+      if (!matchId && !matchName) return false;
+    }
+
     if (!matchesTicketPeriodFilter(t, periodFilter)) return false;
 
     if (search) {
@@ -2745,6 +2923,79 @@ function renderStatsModalContent() {
     })
     .join('');
 
+  // 2. Top Sucursales / Tiendas con Más Reportes
+  const branchCounts = {};
+  tickets.forEach(t => {
+    const key = t.branch || 'Sin Sucursal';
+    if (!branchCounts[key]) {
+      branchCounts[key] = { name: key, country: t.country || 'Guatemala', count: 0 };
+    }
+    branchCounts[key].count += 1;
+  });
+  const topBranches = Object.values(branchCounts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+  const maxBranchCount = Math.max(1, ...topBranches.map(b => b.count));
+
+  const branchesHtml =
+    topBranches.length === 0
+      ? `<div style="font-size: 12px; color: var(--text-muted); padding: 10px 0;">Sin datos de sucursales aún.</div>`
+      : topBranches
+          .map(b => {
+            const pct = tickets.length > 0 ? Math.round((b.count / tickets.length) * 100) : 0;
+            const barW = Math.max(10, Math.round((b.count / maxBranchCount) * 100));
+            return `
+              <div style="margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; margin-bottom: 4px;">
+                  <span style="font-weight: 700; color: var(--text-primary);">${b.name} <span style="font-weight: 500; color: var(--text-muted); font-size: 11px;">(${b.country})</span></span>
+                  <span style="font-weight: 800; color: var(--primary);">${b.count} <span style="font-weight: 600; color: var(--text-muted); font-size: 10.5px;">(${pct}%)</span></span>
+                </div>
+                <div style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 99px; overflow: hidden;">
+                  <div style="width: ${barW}%; height: 100%; background: linear-gradient(90deg, #4f46e5, #6366f1); border-radius: 99px;"></div>
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+
+  // 3. Problemas / Tipos de Gestión Más Frecuentes
+  const categoryCounts = {};
+  tickets.forEach(t => {
+    const key = t.categoryName || 'General';
+    if (!categoryCounts[key]) {
+      categoryCounts[key] = { name: key, count: 0 };
+    }
+    categoryCounts[key].count += 1;
+  });
+  const topCategories = Object.values(categoryCounts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+  const maxCatCount = Math.max(1, ...topCategories.map(c => c.count));
+
+  const categoriesHtml =
+    topCategories.length === 0
+      ? `<div style="font-size: 12px; color: var(--text-muted); padding: 10px 0;">Sin datos de categorías aún.</div>`
+      : topCategories
+          .map(c => {
+            const pct = tickets.length > 0 ? Math.round((c.count / tickets.length) * 100) : 0;
+            const barW = Math.max(10, Math.round((c.count / maxCatCount) * 100));
+            return `
+              <div style="margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; margin-bottom: 4px;">
+                  <span style="font-weight: 700; color: var(--text-primary);">${c.name}</span>
+                  <span style="font-weight: 800; color: #d97706;">${c.count} <span style="font-weight: 600; color: var(--text-muted); font-size: 10.5px;">(${pct}%)</span></span>
+                </div>
+                <div style="width: 100%; height: 8px; background: #e2e8f0; border-radius: 99px; overflow: hidden;">
+                  <div style="width: ${barW}%; height: 100%; background: linear-gradient(90deg, #f59e0b, #d97706); border-radius: 99px;"></div>
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+
+  container.style.maxHeight = '72vh';
+  container.style.overflowY = 'auto';
+
   container.innerHTML = `
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
       <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 14px 16px;">
@@ -2770,7 +3021,337 @@ function renderStatsModalContent() {
         ${barsHtml}
       </div>
     </div>
+
+    <!-- BLOQUE DE ANÁLISIS POR SUCURSAL Y POR TIPO DE GESTIÓN -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px;">
+      <div style="background: var(--bg-card-subtle); border: 1px solid var(--border-light); border-radius: 12px; padding: 14px 16px;">
+        <div style="font-size: 12px; font-weight: 800; color: var(--text-primary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.03em;">
+          🏪 Tiendas / Sucursales con Más Tickets
+        </div>
+        ${branchesHtml}
+      </div>
+
+      <div style="background: var(--bg-card-subtle); border: 1px solid var(--border-light); border-radius: 12px; padding: 14px 16px;">
+        <div style="font-size: 12px; font-weight: 800; color: var(--text-primary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.03em;">
+          🔧 Problemas / Gestiones Más Frecuentes
+        </div>
+        ${categoriesHtml}
+      </div>
+    </div>
   `;
+}
+
+async function downloadStatsReportPDF() {
+  const tickets = TicketStorage.getTickets();
+  const admins = TicketStorage.getUsers().filter(u => u.role === 'admin');
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const todayStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const fileDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+  const escapeHtml = str =>
+    String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  const totalTickets = tickets.length;
+  const totalResolved = tickets.filter(t => t.status === 'Resuelto' || t.status === 'Cerrado').length;
+  const totalInProgress = tickets.filter(t => t.status === 'En Proceso' || t.status === 'En Espera').length;
+  const totalOpen = tickets.filter(t => t.status === 'Abierto').length;
+  const resolutionRate = totalTickets > 0 ? Math.round((totalResolved / totalTickets) * 100) : 0;
+
+  // Productividad por técnico IT
+  const statsByTech = admins
+    .map(admin => {
+      const assigned = tickets.filter(
+        t =>
+          t.assignedTechId === admin.id ||
+          (t.assignedTechName || '').toLowerCase() === (admin.name || '').toLowerCase()
+      );
+      const resolvedList = assigned.filter(t => t.status === 'Resuelto' || t.status === 'Cerrado');
+      const durations = resolvedList
+        .map(t => TicketStorage.computeResolutionDuration(t))
+        .filter(Boolean)
+        .map(d => d.minutes);
+      const avgMins =
+        durations.length > 0
+          ? Math.round(durations.reduce((acc, m) => acc + m, 0) / durations.length)
+          : 0;
+      return {
+        name: admin.name,
+        roleLabel: isMainAdmin(admin) ? 'Administrador General' : 'Soporte Técnico IT',
+        resolved: resolvedList.length,
+        inProgress: assigned.filter(t => t.status === 'En Proceso' || t.status === 'En Espera').length,
+        total: assigned.length,
+        avgTime: durations.length > 0 ? TicketStorage.formatDurationMinutes(avgMins) : '—'
+      };
+    })
+    .sort((a, b) => b.resolved - a.resolved || b.total - a.total);
+
+  const techRowsHtml = statsByTech
+    .map((s, i) => {
+      const pct = totalResolved > 0 ? Math.round((s.resolved / totalResolved) * 100) : 0;
+      return `
+        <div style="display: grid; grid-template-columns: 1.5fr 0.7fr 0.7fr 0.7fr 0.9fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f1f5f9; font-size: 11.5px; align-items: center;">
+          <div>
+            <strong style="color: #0f172a;">#${i + 1} ${escapeHtml(s.name)}</strong>
+            <div style="font-size: 9.5px; color: #64748b;">${escapeHtml(s.roleLabel)}</div>
+          </div>
+          <div style="text-align: center; font-weight: 800; color: #047857;">${s.resolved} (${pct}%)</div>
+          <div style="text-align: center; font-weight: 700; color: #1d4ed8;">${s.inProgress}</div>
+          <div style="text-align: center; font-weight: 700; color: #0f172a;">${s.total}</div>
+          <div style="text-align: right; font-weight: 700; color: #334155;">${escapeHtml(s.avgTime)}</div>
+        </div>
+      `;
+    })
+    .join('');
+
+  // Top Sucursales
+  const branchMap = {};
+  tickets.forEach(t => {
+    const key = t.branch || 'Sin Sucursal';
+    if (!branchMap[key]) branchMap[key] = { name: key, country: t.country || 'Guatemala', count: 0 };
+    branchMap[key].count++;
+  });
+  const topBranches = Object.values(branchMap)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+
+  const branchRowsHtml =
+    topBranches.length === 0
+      ? `<div style="font-size: 11.5px; color: #64748b; padding: 6px 0;">Sin datos registrados</div>`
+      : topBranches
+          .map(b => {
+            const pct = totalTickets > 0 ? Math.round((b.count / totalTickets) * 100) : 0;
+            return `
+              <div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f1f5f9; font-size: 11.5px;">
+                <span style="font-weight: 700; color: #0f172a;">${escapeHtml(b.name)} <span style="font-weight: 500; color: #64748b; font-size: 10px;">(${escapeHtml(b.country)})</span></span>
+                <span style="font-weight: 800; color: #0f172a;">${b.count} (${pct}%)</span>
+              </div>
+            `;
+          })
+          .join('');
+
+  // Top Categorías
+  const catMap = {};
+  tickets.forEach(t => {
+    const key = t.categoryName || 'General';
+    if (!catMap[key]) catMap[key] = { name: key, count: 0 };
+    catMap[key].count++;
+  });
+  const topCats = Object.values(catMap)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+
+  const catRowsHtml =
+    topCats.length === 0
+      ? `<div style="font-size: 11.5px; color: #64748b; padding: 6px 0;">Sin datos registrados</div>`
+      : topCats
+          .map(c => {
+            const pct = totalTickets > 0 ? Math.round((c.count / totalTickets) * 100) : 0;
+            return `
+              <div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f1f5f9; font-size: 11.5px;">
+                <span style="font-weight: 700; color: #0f172a;">${escapeHtml(c.name)}</span>
+                <span style="font-weight: 800; color: #0f172a;">${c.count} (${pct}%)</span>
+              </div>
+            `;
+          })
+          .join('');
+
+  const SHEET_WIDTH_PX = 760;
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'fixed';
+  wrapper.style.left = '0';
+  wrapper.style.top = '0';
+  wrapper.style.width = `${SHEET_WIDTH_PX}px`;
+  wrapper.style.background = '#ffffff';
+  wrapper.style.zIndex = '-9999';
+  wrapper.style.pointerEvents = 'none';
+
+  const generatedBy = currentUser ? currentUser.name : 'Maynor Cuyuche';
+
+  wrapper.innerHTML = `
+    <div id="premia-stats-pdf-sheet" style="width: ${SHEET_WIDTH_PX}px; background: #ffffff; color: #0f172a; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; padding: 2px 0; box-sizing: border-box;">
+      <!-- ENCABEZADO CORPORATIVO -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <div style="font-size: 21px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em;">
+            Reporte Ejecutivo de Estadísticas IT
+          </div>
+          <div style="font-size: 11.5px; color: #64748b; margin-top: 4px; font-weight: 500;">
+            GRUPO PREMIA · MUNDI TROFEOS · TIENDAS TROFEX · Generado ${todayStr}
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+          <img src="logomundi.jpeg" alt="Grupo Premia" style="height: 44px; width: auto; object-fit: contain;" onerror="this.style.display='none'">
+          <span style="font-size: 10px; font-weight: 800; color: #0f172a; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 8px; border-radius: 4px;">
+            INFORME SOPORTE IT
+          </span>
+        </div>
+      </div>
+
+      <div style="border-bottom: 2px solid #0f172a; margin: 12px 0 16px 0;"></div>
+
+      <!-- KPIs GENERALES (4 COLUMNAS) -->
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;">
+        <div style="border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; background: #f8fafc;">
+          <div style="font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase;">TOTAL TICKETS</div>
+          <div style="font-size: 20px; font-weight: 800; color: #0f172a; margin-top: 3px;">${totalTickets}</div>
+        </div>
+        <div style="border: 1px solid #a7f3d0; border-radius: 8px; padding: 10px 12px; background: #ecfdf5;">
+          <div style="font-size: 9px; font-weight: 700; color: #065f46; text-transform: uppercase;">RESUELTOS / CERRADOS</div>
+          <div style="font-size: 20px; font-weight: 800; color: #047857; margin-top: 3px;">${totalResolved}</div>
+        </div>
+        <div style="border: 1px solid #bfdbfe; border-radius: 8px; padding: 10px 12px; background: #eff6ff;">
+          <div style="font-size: 9px; font-weight: 700; color: #1e40af; text-transform: uppercase;">EN PROCESO / ESPERA</div>
+          <div style="font-size: 20px; font-weight: 800; color: #1d4ed8; margin-top: 3px;">${totalInProgress}</div>
+        </div>
+        <div style="border: 1px solid #fde68a; border-radius: 8px; padding: 10px 12px; background: #fffbeb;">
+          <div style="font-size: 9px; font-weight: 700; color: #92400e; text-transform: uppercase;">ABIERTOS PENDIENTES</div>
+          <div style="font-size: 20px; font-weight: 800; color: #b45309; margin-top: 3px;">${totalOpen}</div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 1: RENDIMIENTO POR INTEGRANTE DE SOPORTE IT -->
+      <div style="margin-top: 18px;">
+        <div style="font-size: 12.5px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
+          Productividad y Tiempos de Atención por Integrante IT
+        </div>
+        <div style="display: grid; grid-template-columns: 1.5fr 0.7fr 0.7fr 0.7fr 0.9fr; gap: 10px; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; font-size: 9.5px; font-weight: 700; color: #64748b; text-transform: uppercase;">
+          <span>INTEGRANTE / ROL</span>
+          <span style="text-align: center;">RESUELTOS</span>
+          <span style="text-align: center;">EN PROCESO</span>
+          <span style="text-align: center;">TOTAL</span>
+          <span style="text-align: right;">TIEMPO PROMEDIO</span>
+        </div>
+        ${techRowsHtml}
+      </div>
+
+      <!-- SECCIÓN 2: TOP SUCURSALES Y TOP CATEGORÍAS -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 18px;">
+        <div>
+          <div style="font-size: 12.5px; font-weight: 700; color: #0f172a; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; margin-bottom: 4px;">
+            Tiendas / Sucursales con Más Reportes
+          </div>
+          ${branchRowsHtml}
+        </div>
+        <div>
+          <div style="font-size: 12.5px; font-weight: 700; color: #0f172a; border-bottom: 1.5px solid #0f172a; padding-bottom: 4px; margin-bottom: 4px;">
+            Tipos de Gestión / Problemas Más Frecuentes
+          </div>
+          ${catRowsHtml}
+        </div>
+      </div>
+
+      <!-- RECUADRO RESUMEN FINAL -->
+      <div style="margin-top: 22px; border: 1.8px solid #0f172a; border-radius: 8px; padding: 13px 18px; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
+        <span style="font-size: 13px; font-weight: 800; color: #0f172a; letter-spacing: 0.04em; text-transform: uppercase;">
+          TASA GLOBAL DE RESOLUCIÓN DE SOPORTE IT
+        </span>
+        <span style="font-size: 18px; font-weight: 800; color: #047857; letter-spacing: 0.02em;">
+          ${resolutionRate}% (${totalResolved} / ${totalTickets})
+        </span>
+      </div>
+
+      <!-- FIRMAS -->
+      <div style="display: flex; justify-content: space-around; align-items: flex-end; margin-top: 48px; padding: 0 20px;">
+        <div style="width: 245px; border-top: 1.3px solid #0f172a; padding-top: 6px; text-align: center;">
+          <div style="font-size: 11.5px; font-weight: 800; color: #0f172a;">${escapeHtml(generatedBy)}</div>
+          <div style="font-size: 10px; font-weight: 600; color: #64748b; margin-top: 1px;">Elaborado por (Soporte Técnico IT)</div>
+        </div>
+        <div style="width: 245px; border-top: 1.3px solid #0f172a; padding-top: 6px; text-align: center;">
+          <div style="font-size: 11.5px; font-weight: 800; color: #0f172a;">Gerencia / Administración</div>
+          <div style="font-size: 10px; font-weight: 600; color: #64748b; margin-top: 1px;">Revisado y recibido conforme</div>
+        </div>
+      </div>
+
+      <div style="text-align: right; font-size: 9.5px; color: #94a3b8; margin-top: 24px;">
+        Documento generado desde el sistema de tickets — Grupo Premia
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(wrapper);
+  const sheet = wrapper.querySelector('#premia-stats-pdf-sheet');
+
+  if (!window.html2pdf) {
+    window.print();
+    wrapper.remove();
+    return;
+  }
+
+  const imgs = Array.from(sheet.querySelectorAll('img'));
+  await Promise.all(
+    imgs.map(img =>
+      img.complete
+        ? Promise.resolve()
+        : new Promise(res => {
+            img.onload = res;
+            img.onerror = res;
+          })
+    )
+  );
+
+  const opt = {
+    margin: 0,
+    filename: `Reporte_Estadisticas_IT_${fileDate}.pdf`,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: {
+      scale: 2.5,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      x: 0,
+      y: 0,
+      scrollX: 0,
+      scrollY: 0,
+      width: SHEET_WIDTH_PX,
+      windowWidth: SHEET_WIDTH_PX
+    },
+    jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }
+  };
+
+  try {
+    showToast('Generando Reporte Ejecutivo de Estadísticas en PDF...');
+    const worker = html2pdf().set(opt).from(sheet);
+    const canvas = await worker.toCanvas().get('canvas');
+    const pdf = await worker.toPdf().get('pdf');
+
+    const existingPages = pdf.internal.getNumberOfPages();
+    pdf.addPage('letter', 'portrait');
+    for (let p = existingPages; p >= 1; p--) {
+      pdf.deletePage(p);
+    }
+    pdf.setPage(1);
+
+    const PAGE_WIDTH_MM = 215.9;
+    const PAGE_HEIGHT_MM = 279.4;
+    const MARGIN_X_MM = 12.5;
+    const MARGIN_TOP_MM = 11.5;
+    const MARGIN_BOTTOM_MM = 11.5;
+
+    const usableWidthMm = PAGE_WIDTH_MM - MARGIN_X_MM * 2;
+    const usableHeightMm = PAGE_HEIGHT_MM - MARGIN_TOP_MM - MARGIN_BOTTOM_MM;
+
+    let renderWidthMm = usableWidthMm;
+    let renderHeightMm = (canvas.height / canvas.width) * renderWidthMm;
+
+    if (renderHeightMm > usableHeightMm) {
+      const ratio = usableHeightMm / renderHeightMm;
+      renderHeightMm = usableHeightMm;
+      renderWidthMm = renderWidthMm * ratio;
+    }
+
+    const offsetXMm = (PAGE_WIDTH_MM - renderWidthMm) / 2;
+    const offsetYMm = MARGIN_TOP_MM;
+
+    const imgData = canvas.toDataURL('image/jpeg', 0.98);
+    pdf.addImage(imgData, 'JPEG', offsetXMm, offsetYMm, renderWidthMm, renderHeightMm);
+    pdf.save(`Reporte_Estadisticas_IT_${fileDate}.pdf`);
+  } finally {
+    wrapper.remove();
+  }
 }
 
 function renderModalComments(ticket) {
@@ -2832,6 +3413,31 @@ async function addTicketComment() {
   showToast('Comentario sincronizado en el ticket');
 
   TicketStorage.syncTicketToBackend(tickets[idx]).then(() => updateDbStatusBadge());
+}
+
+function applyQuickResolutionNote(templateKey) {
+  const notesInp = document.getElementById('mdl-resolution-notes');
+  if (!notesInp || notesInp.disabled) return;
+
+  const templates = {
+    printer: 'Se revisó y configuró la impresora vía AnyDesk. Se realizó prueba de impresión exitosa en caja.',
+    network: 'Se verificó y restableció la conexión de red / internet en la sucursal. Servicio operando con normalidad.',
+    install: 'Se realizó la instalación, configuración y pruebas del equipo nuevo. Queda operando correctamente.',
+    maintenance: 'Se ejecutó mantenimiento preventivo y respaldo de datos en el equipo sin novedades.',
+    waiting: 'Pendiente de adquisición o entrega de repuesto / equipo nuevo para completar la solución.'
+  };
+
+  const text = templates[templateKey];
+  if (!text) return;
+
+  notesInp.value = text;
+  notesInp.focus();
+  if (templateKey === 'waiting') {
+    const statusSel = document.getElementById('mdl-status-select');
+    if (statusSel && !statusSel.disabled) {
+      statusSel.value = 'En Espera';
+    }
+  }
 }
 
 async function saveTicketAdminChanges() {
